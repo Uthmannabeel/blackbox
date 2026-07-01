@@ -17,7 +17,12 @@
     "agent:dev": "node --loader ts-node/esm packages/agent/src/cli.ts",
     "dev": "npm run dev -w @blackbox/web",
     "dev:mock": "node scripts/mockdev.mjs",
-    "web:build": "npm run build -w @blackbox/web"
+    "web:build": "npm run build -w @blackbox/web",
+    "test": "vitest run",
+    "test:watch": "vitest"
+  },
+  "devDependencies": {
+    "vitest": "^2.1.8"
   },
   "engines": {
     "node": ">=20"

@@ -56,6 +56,8 @@ export async function GET() {
     });
   } catch (err) {
     // No live cluster yet — return the intended demo topology so the UI renders.
-    return NextResponse.json({ live: false, note: (err as Error).message, ...DEMO_TOPOLOGY });
+    // Log the detail server-side; never leak connection/error internals to the client.
+    console.error("[/api/regions] falling back to demo topology:", err);
+    return NextResponse.json({ live: false, ...DEMO_TOPOLOGY });
   }
 }

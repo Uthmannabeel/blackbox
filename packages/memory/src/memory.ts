@@ -29,7 +29,10 @@ export class MemoryService implements IMemoryService {
   private readonly beamSize: number;
 
   constructor(opts: { beamSize?: number } = {}) {
-    this.beamSize = opts.beamSize ?? 64;
+    // Clamp to a safe integer: this value is interpolated into a SET statement
+    // (SET does not accept bind parameters), so we never let it be arbitrary.
+    const requested = Math.floor(opts.beamSize ?? 64);
+    this.beamSize = Math.max(1, Math.min(2048, Number.isFinite(requested) ? requested : 64));
   }
 
   // ---- Episodic memory: incidents -----------------------------------------

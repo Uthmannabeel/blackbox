@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAgent } from "@/lib/agentSession";
+import { clientKey, rateLimit } from "@/lib/rateLimit";
 
 // The agent uses pg + the AWS SDK, so this route must run on Node, not Edge.
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const MAX_MESSAGE_LEN = 4000;
 
 export async function POST(req: NextRequest) {
   try {
@@ -11,8 +14,25 @@ export async function POST(req: NextRequest) {
       sessionId: string;
       message: string;
     };
-    if (!sessionId || !message) {
-      return NextResponse.json({ error: "sessionId and message required" }, { status: 400 });
+
+    // Validate at the boundary.
+    if (typeof sessionId !== "string" || typeof message !== "string" || !sessionId || !message) {
+      return NextResponse.json({ error: "sessionId and message are required" }, { status: 400 });
+    }
+    if (message.length > MAX_MESSAGE_LEN) {
+      return NextResponse.json(
+        { error: `message exceeds ${MAX_MESSAGE_LEN} characters` },
+        { status: 413 },
+      );
+    }
+
+    // Rate limit per client (falls back to sessionId behind a shared proxy).
+    const limit = rateLimit(clientKey(req.headers, sessionId));
+    if (!limit.ok) {
+      return NextResponse.json(
+        { error: "Rate limit exceeded. Please slow down." },
+        { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } },
+      );
     }
 
     const agent = getAgent(sessionId);
@@ -24,9 +44,10 @@ export async function POST(req: NextRequest) {
       incidentId: agent.currentIncidentId,
     });
   } catch (err) {
+    // Log full detail server-side; return a generic message to the client.
     console.error("[/api/chat]", err);
     return NextResponse.json(
-      { error: (err as Error).message ?? "agent error" },
+      { error: "The agent hit an internal error. Please try again." },
       { status: 500 },
     );
   }

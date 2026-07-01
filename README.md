@@ -130,6 +130,23 @@ npm run dev                   # or use the web dashboard at http://localhost:300
 See [`infra/README.md`](./infra/README.md) for provisioning the multi-region
 cluster, enabling the Managed MCP Server, and requesting Bedrock model access.
 
+## Tests
+
+```bash
+npm test          # vitest — runs the full suite in offline mock mode
+```
+
+Covers embedding determinism + similarity ordering, semantic recall over the
+seeded memory, the agent's reason/recall/act loop, and API rate limiting.
+
+## Production hardening
+
+- Read-only, statement-guarded cluster introspection via MCP
+- Parameterized SQL throughout; TLS `verify-full` to the cluster
+- Rate limiting + input validation on the agent endpoint
+- CSP + `Strict-Transport-Security`/`X-Frame-Options`/`X-Content-Type-Options` headers
+- Errors logged server-side; never leaked to clients
+
 ## License
 
 Apache-2.0 — see [`LICENSE`](./LICENSE).
