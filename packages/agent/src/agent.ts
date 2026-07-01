@@ -3,7 +3,7 @@ import {
   ConverseCommand,
   type Message,
   type ContentBlock,
-  type Tool,
+  type ToolConfiguration,
 } from "@aws-sdk/client-bedrock-runtime";
 import { MemoryService } from "@blackbox/memory";
 import { buildTools, type AgentTool, type ToolContext } from "./tools.js";
@@ -46,7 +46,7 @@ export class BlackBoxAgent {
   private readonly memory: MemoryService;
   private readonly ctx: ToolContext;
   private readonly tools: AgentTool[];
-  private readonly toolConfig: { tools: Tool[] };
+  private readonly toolConfig: ToolConfiguration;
   private readonly history: Message[] = [];
 
   constructor(opts: { sessionId: string; incidentId?: string | null; memory?: MemoryService }) {
@@ -61,7 +61,7 @@ export class BlackBoxAgent {
     this.tools = buildTools(this.ctx);
     this.toolConfig = {
       tools: this.tools.map((t) => ({ toolSpec: t.spec })),
-    };
+    } as ToolConfiguration;
   }
 
   get currentIncidentId(): string | null {
@@ -124,6 +124,7 @@ export class BlackBoxAgent {
       for (const b of blocks) {
         if (!b.toolUse) continue;
         const { toolUseId, name, input } = b.toolUse;
+        if (!toolUseId || !name) continue;
         events.push({ type: "tool_call", tool: name, input });
 
         const tool = this.tools.find((t) => t.spec.name === name);
@@ -150,7 +151,7 @@ export class BlackBoxAgent {
 
         toolResults.push({
           toolResult: {
-            toolUseId: toolUseId!,
+            toolUseId,
             content: [{ text: output }],
           },
         });
