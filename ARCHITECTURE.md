@@ -8,6 +8,49 @@ outage, and semantically searchable via distributed vector indexes. Reasoning
 runs on Amazon Bedrock; the agent introspects its own database through the
 CockroachDB Managed MCP Server.
 
+## Diagram
+
+```mermaid
+flowchart TB
+    OP["👤 Operator<br/>(browser)"]
+
+    subgraph WEB["web/ · Next.js dashboard"]
+        UI["Chat · timeline · CHAOS button"]
+    end
+
+    subgraph AGENT["packages/agent · AWS Lambda"]
+        LOOP["reason ↔ recall ↔ act loop"]
+    end
+
+    subgraph AWS["Amazon Bedrock"]
+        CLAUDE["Claude — reasoning"]
+        TITAN["Titan v2 — embeddings (1024-d)"]
+    end
+
+    subgraph MEM["packages/memory (pg)"]
+        SVC["MemoryService"]
+    end
+
+    MCP["CockroachDB<br/>Managed MCP Server"]
+
+    subgraph CRDB["CockroachDB Cloud — multi-region"]
+        direction LR
+        R1["aws-us-east-1<br/>(primary)"]
+        R2["aws-eu-west-1"]
+        R3["aws-ap-south-1"]
+    end
+
+    OP --> UI --> LOOP
+    LOOP -->|reasoning / tools| CLAUDE
+    LOOP -->|memory tools| SVC
+    LOOP -->|read-only SQL| MCP
+    SVC -->|embed| TITAN
+    SVC -->|"REGIONAL BY ROW · vector search"| CRDB
+    MCP --> CRDB
+    R1 -. "SURVIVE REGION FAILURE" .- R2
+    R2 -. strongly consistent .- R3
+```
+
 ## Components
 
 ### 1. Memory layer — `packages/memory`
