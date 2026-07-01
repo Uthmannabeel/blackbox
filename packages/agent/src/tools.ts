@@ -1,4 +1,4 @@
-import { MemoryService } from "@blackbox/memory";
+import type { IMemoryService } from "@blackbox/memory";
 import { mcpConfigured, mcpRunSql } from "./mcp.js";
 
 /** A tool the agent can call: a Bedrock toolSpec + a handler. */
@@ -12,7 +12,7 @@ export interface AgentTool {
 }
 
 export interface ToolContext {
-  memory: MemoryService;
+  memory: IMemoryService;
   sessionId: string;
   /** The incident currently being worked, if any. Mutated as the agent opens one. */
   currentIncidentId: string | null;

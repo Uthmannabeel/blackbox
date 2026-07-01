@@ -14,7 +14,10 @@
     "typecheck": "tsc --build --dry",
     "db:schema": "node --loader ts-node/esm packages/memory/src/scripts/applySchema.ts",
     "db:seed": "node --loader ts-node/esm packages/memory/src/scripts/seed.ts",
-    "agent:dev": "node --loader ts-node/esm packages/agent/src/cli.ts"
+    "agent:dev": "node --loader ts-node/esm packages/agent/src/cli.ts",
+    "dev": "npm run dev -w @blackbox/web",
+    "dev:mock": "node scripts/mockdev.mjs",
+    "web:build": "npm run build -w @blackbox/web"
   },
   "engines": {
     "node": ">=20"

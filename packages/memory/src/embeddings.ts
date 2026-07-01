@@ -2,6 +2,7 @@ import {
   BedrockRuntimeClient,
   InvokeModelCommand,
 } from "@aws-sdk/client-bedrock-runtime";
+import { isMock } from "./env.js";
 
 /**
  * Embeddings via Amazon Bedrock — Titan Text Embeddings v2 (1024 dimensions),
@@ -22,6 +23,8 @@ function getClient(): BedrockRuntimeClient {
 }
 
 export async function embed(text: string): Promise<number[]> {
+  if (isMock()) return mockEmbed(text);
+
   const modelId = process.env.BEDROCK_EMBED_MODEL_ID ?? "amazon.titan-embed-text-v2:0";
 
   const body = JSON.stringify({
@@ -49,6 +52,33 @@ export async function embed(text: string): Promise<number[]> {
     );
   }
   return payload.embedding;
+}
+
+/**
+ * Deterministic offline embedding for mock mode: a hashed bag-of-words into
+ * EMBED_DIM buckets, unit-normalized. Shared words produce overlapping
+ * dimensions, so cosine/L2 recall still surfaces genuinely similar text —
+ * good enough to demo the UX without calling Bedrock.
+ */
+function mockEmbed(text: string): number[] {
+  const v = new Array<number>(EMBED_DIM).fill(0);
+  const tokens = text.toLowerCase().match(/[a-z0-9]+/g) ?? [];
+  for (const tok of tokens) {
+    let h = 2166136261;
+    for (let i = 0; i < tok.length; i++) {
+      h ^= tok.charCodeAt(i);
+      h = Math.imul(h, 16777619);
+    }
+    const idx = Math.abs(h) % EMBED_DIM;
+    v[idx] = (v[idx] ?? 0) + 1;
+    // A second bucket reduces collisions between unrelated tokens.
+    const idx2 = Math.abs(Math.imul(h, 40503)) % EMBED_DIM;
+    v[idx2] = (v[idx2] ?? 0) + 0.5;
+  }
+  let norm = 0;
+  for (const x of v) norm += x * x;
+  norm = Math.sqrt(norm) || 1;
+  return v.map((x) => x / norm);
 }
 
 export { EMBED_DIM };

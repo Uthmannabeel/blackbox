@@ -104,13 +104,31 @@ cockroach-ai/
 
 ## Getting started
 
+### Try it offline in 30 seconds (no cloud, no keys)
+
+```bash
+npm install
+npm run dev:mock              # open http://localhost:3000
+```
+
+Mock mode swaps in deterministic embeddings, an in-memory store seeded with the
+sample incidents, and a scripted agent — so the full UI (recall, incident
+timeline, chaos/survivability panel) runs with zero credentials. Great for a
+first look and as a demo fallback.
+
+### Run against real CockroachDB + AWS Bedrock
+
 ```bash
 npm install
 cp .env.example .env          # fill in CockroachDB + AWS credentials
 npm run db:schema             # apply db/schema.sql to your cluster
-npm run db:seed               # load sample fleet + historical incidents
+npm run db:seed               # load sample fleet + historical incidents (embeds via Bedrock)
 npm run agent:dev             # talk to the agent from the CLI
+npm run dev                   # or use the web dashboard at http://localhost:3000
 ```
+
+See [`infra/README.md`](./infra/README.md) for provisioning the multi-region
+cluster, enabling the Managed MCP Server, and requesting Bedrock model access.
 
 ## License
 

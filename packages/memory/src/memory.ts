@@ -1,6 +1,7 @@
 import { getPool, toVectorLiteral } from "./db.js";
 import { embed } from "./embeddings.js";
 import type {
+  IMemoryService,
   Incident,
   IncidentPhase,
   IncidentStateRecord,
@@ -24,7 +25,7 @@ import type {
  *  - vector_search_beam_size trades recall accuracy for latency; we raise it
  *    from the default 32 for the (small) recall sets an incident needs.
  */
-export class MemoryService {
+export class MemoryService implements IMemoryService {
   private readonly beamSize: number;
 
   constructor(opts: { beamSize?: number } = {}) {

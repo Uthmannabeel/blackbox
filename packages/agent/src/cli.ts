@@ -3,8 +3,8 @@ import { stdin, stdout } from "node:process";
 import { randomUUID } from "node:crypto";
 import { resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
-import { closePool } from "@blackbox/memory";
-import { BlackBoxAgent } from "./agent.js";
+import { closePool, isMock } from "@blackbox/memory";
+import { createAgent } from "./index.js";
 import { mcpConfigured } from "./mcp.js";
 
 /**
@@ -22,10 +22,11 @@ try {
 
 async function main() {
   const sessionId = randomUUID();
-  const agent = new BlackBoxAgent({ sessionId });
+  const agent = createAgent({ sessionId });
 
   console.log("🛩️  BlackBox incident copilot");
   console.log(`   session ${sessionId}`);
+  console.log(`   mode: ${isMock() ? "MOCK (offline)" : "live (Bedrock + CockroachDB)"}`);
   console.log(`   cluster introspection (MCP): ${mcpConfigured() ? "enabled" : "disabled"}`);
   console.log("   Type your incident, or 'exit' to quit.\n");
 

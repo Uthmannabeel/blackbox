@@ -1,16 +1,17 @@
-import { BlackBoxAgent } from "@blackbox/agent";
+import { createAgent, type Agent } from "@blackbox/agent";
 
 /**
  * Server-side registry of live agent sessions. The agent's *durable* memory
- * lives in CockroachDB; this map only holds the in-flight Bedrock conversation
- * so multi-turn context works within a browser session.
+ * lives in CockroachDB; this map only holds the in-flight conversation so
+ * multi-turn context works within a browser session. Uses the real Bedrock
+ * agent, or the scripted mock when BLACKBOX_MOCK is set.
  */
-const sessions = new Map<string, BlackBoxAgent>();
+const sessions = new Map<string, Agent>();
 
-export function getAgent(sessionId: string): BlackBoxAgent {
+export function getAgent(sessionId: string): Agent {
   let agent = sessions.get(sessionId);
   if (!agent) {
-    agent = new BlackBoxAgent({ sessionId });
+    agent = createAgent({ sessionId });
     sessions.set(sessionId, agent);
   }
   return agent;

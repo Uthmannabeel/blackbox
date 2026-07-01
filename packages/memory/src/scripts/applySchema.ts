@@ -3,6 +3,14 @@ import { fileURLToPath } from "node:url";
 import { dirname, resolve } from "node:path";
 import { getPool, closePool } from "../db.js";
 
+// Load repo-root .env (Node >=20.6 built-in).
+try {
+  const root = dirname(fileURLToPath(import.meta.url));
+  (process as any).loadEnvFile?.(resolve(root, "../../../../.env"));
+} catch {
+  /* env may already be set */
+}
+
 /**
  * Apply db/schema.sql to the configured CockroachDB cluster.
  * Idempotent: every statement uses IF NOT EXISTS.

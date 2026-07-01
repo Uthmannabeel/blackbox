@@ -1,8 +1,22 @@
 import { NextResponse } from "next/server";
-import { getPool } from "@blackbox/memory";
+import { getPool, isMock } from "@blackbox/memory";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
+
+const DEMO_TOPOLOGY = {
+  regions: [
+    { region: "aws-us-east-1", primary: true },
+    { region: "aws-eu-west-1", primary: false },
+    { region: "aws-ap-south-1", primary: false },
+  ],
+  distribution: [
+    { region: "aws-us-east-1", rows: 8 },
+    { region: "aws-eu-west-1", rows: 5 },
+    { region: "aws-ap-south-1", rows: 3 },
+  ],
+  survivalGoal: "region",
+};
 
 /**
  * Region + replication status for the "chaos" panel. Queries CockroachDB for
@@ -10,6 +24,10 @@ export const dynamic = "force-dynamic";
  * them — proving the memory is genuinely multi-region replicated, not mocked.
  */
 export async function GET() {
+  // Offline mock mode: return the intended topology, clearly labeled.
+  if (isMock()) {
+    return NextResponse.json({ live: false, mock: true, ...DEMO_TOPOLOGY });
+  }
   try {
     const pool = getPool();
 
@@ -38,20 +56,6 @@ export async function GET() {
     });
   } catch (err) {
     // No live cluster yet — return the intended demo topology so the UI renders.
-    return NextResponse.json({
-      live: false,
-      note: (err as Error).message,
-      regions: [
-        { region: "aws-us-east-1", primary: true },
-        { region: "aws-eu-west-1", primary: false },
-        { region: "aws-ap-south-1", primary: false },
-      ],
-      distribution: [
-        { region: "aws-us-east-1", rows: 8 },
-        { region: "aws-eu-west-1", rows: 5 },
-        { region: "aws-ap-south-1", rows: 3 },
-      ],
-      survivalGoal: "region",
-    });
+    return NextResponse.json({ live: false, note: (err as Error).message, ...DEMO_TOPOLOGY });
   }
 }

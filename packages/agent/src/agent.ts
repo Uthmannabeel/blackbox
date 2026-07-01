@@ -5,7 +5,7 @@ import {
   type ContentBlock,
   type ToolConfiguration,
 } from "@aws-sdk/client-bedrock-runtime";
-import { MemoryService } from "@blackbox/memory";
+import { createMemoryService, type IMemoryService } from "@blackbox/memory";
 import { buildTools, type AgentTool, type ToolContext } from "./tools.js";
 
 const SYSTEM_PROMPT = `You are BlackBox, an expert SRE incident-response copilot.
@@ -35,24 +35,30 @@ export interface AgentResult {
   events: AgentEvent[];
 }
 
+/** Common surface implemented by both the real and mock agents. */
+export interface Agent {
+  readonly currentIncidentId: string | null;
+  chat(userMessage: string, maxSteps?: number): Promise<AgentResult>;
+}
+
 /**
  * The BlackBox agent: a reason <-> recall <-> act loop over Bedrock Converse
  * with tool use. Conversation turns are also written to durable memory so the
  * agent remembers across sessions and across region failures.
  */
-export class BlackBoxAgent {
+export class BlackBoxAgent implements Agent {
   private readonly client: BedrockRuntimeClient;
   private readonly modelId: string;
-  private readonly memory: MemoryService;
+  private readonly memory: IMemoryService;
   private readonly ctx: ToolContext;
   private readonly tools: AgentTool[];
   private readonly toolConfig: ToolConfiguration;
   private readonly history: Message[] = [];
 
-  constructor(opts: { sessionId: string; incidentId?: string | null; memory?: MemoryService }) {
+  constructor(opts: { sessionId: string; incidentId?: string | null; memory?: IMemoryService }) {
     this.client = new BedrockRuntimeClient({ region: process.env.AWS_REGION ?? "us-east-1" });
     this.modelId = process.env.BEDROCK_MODEL_ID ?? "us.anthropic.claude-sonnet-4-6-v1:0";
-    this.memory = opts.memory ?? new MemoryService();
+    this.memory = opts.memory ?? createMemoryService();
     this.ctx = {
       memory: this.memory,
       sessionId: opts.sessionId,

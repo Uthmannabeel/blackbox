@@ -68,3 +68,38 @@ export interface IncidentStateRecord {
   region: string;
   updatedAt: string;
 }
+
+/**
+ * The memory contract the agent depends on. Both the CockroachDB-backed
+ * MemoryService and the in-memory MockMemoryService implement this, so the
+ * agent works identically online and offline.
+ */
+export interface IMemoryService {
+  recordIncident(input: {
+    serviceId: string;
+    title: string;
+    summary: string;
+    severity: Severity;
+    signals?: unknown;
+  }): Promise<Incident>;
+  resolveIncident(incidentId: string, resolution: string): Promise<void>;
+  recallSimilarIncidents(situation: string, limit?: number): Promise<RecallHit<Incident>[]>;
+  upsertRunbook(input: { title: string; body: string; tags?: string[] }): Promise<Runbook>;
+  recallRunbooks(situation: string, limit?: number): Promise<RecallHit<Runbook>[]>;
+  remember(input: {
+    sessionId: string;
+    incidentId?: string | null;
+    kind: MemoryKind;
+    content: string;
+    importance?: number;
+  }): Promise<MemoryItem>;
+  recallMemories(query: string, limit?: number): Promise<RecallHit<MemoryItem>[]>;
+  getIncidentState(incidentId: string): Promise<IncidentStateRecord | null>;
+  updateIncidentState(input: {
+    incidentId: string;
+    phase: IncidentPhase;
+    hypotheses: string[];
+    actionsTaken: string[];
+    nextSteps: string[];
+  }): Promise<void>;
+}

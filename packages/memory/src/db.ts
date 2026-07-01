@@ -1,4 +1,5 @@
 import { Pool, types } from "pg";
+import "./env.js";
 
 /**
  * A single shared connection pool to CockroachDB.
