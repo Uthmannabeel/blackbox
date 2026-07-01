@@ -1,0 +1,21 @@
+{
+  "name": "blackbox",
+  "version": "0.1.0",
+  "private": true,
+  "description": "BlackBox — an SRE incident-response agent whose memory survives the crash. Built on CockroachDB (regional-by-row distributed vector memory + Managed MCP) and AWS Bedrock.",
+  "license": "Apache-2.0",
+  "type": "module",
+  "workspaces": [
+    "packages/*"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --build --dry",
+    "db:schema": "node --loader ts-node/esm packages/memory/src/scripts/applySchema.ts",
+    "db:seed": "node --loader ts-node/esm packages/memory/src/scripts/seed.ts",
+    "agent:dev": "node --loader ts-node/esm packages/agent/src/cli.ts"
+  },
+  "engines": {
+    "node": ">=20"
+  }
+}
