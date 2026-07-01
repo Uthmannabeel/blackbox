@@ -102,31 +102,54 @@ export function buildTools(ctx: ToolContext): AgentTool[] {
     },
     {
       spec: {
+        name: "list_services",
+        description:
+          "List the services in the fleet (name, team, home region). Use to identify which service an incident belongs to.",
+        inputSchema: {
+          json: { type: "object", properties: {} },
+        },
+      },
+      handler: async () => {
+        const services = await ctx.memory.listServices();
+        if (services.length === 0) return "No services registered.";
+        return services
+          .map((s) => `${s.name} (team: ${s.ownerTeam ?? "?"}, region: ${s.region})`)
+          .join("\n");
+      },
+    },
+    {
+      spec: {
         name: "open_incident",
         description:
-          "Open a new incident record when a real problem is confirmed. Returns the incident id and sets it as the current incident.",
+          "Open a new incident record when a real problem is confirmed. Pass the SERVICE NAME (e.g. 'checkout-api') — it is resolved to the fleet record, created if new. Returns the incident id and sets it as the current incident.",
         inputSchema: {
           json: {
             type: "object",
             properties: {
-              service_id: { type: "string" },
+              service: {
+                type: "string",
+                description: "Service name, e.g. 'checkout-api'.",
+              },
               title: { type: "string" },
               summary: { type: "string" },
               severity: { type: "string", enum: ["SEV1", "SEV2", "SEV3", "SEV4"] },
             },
-            required: ["service_id", "title", "summary", "severity"],
+            required: ["service", "title", "summary", "severity"],
           },
         },
       },
       handler: async (input) => {
+        // Resolve the human-friendly name to a real fleet record; never trust
+        // the model to produce a valid UUID.
+        const svc = await ctx.memory.resolveService(String(input.service));
         const inc = await ctx.memory.recordIncident({
-          serviceId: input.service_id,
+          serviceId: svc.id,
           title: input.title,
           summary: input.summary,
           severity: input.severity,
         });
         ctx.currentIncidentId = inc.id;
-        return `Opened incident ${inc.id} in region ${inc.region}.`;
+        return `Opened incident ${inc.id} for service ${svc.name} in region ${inc.region}.`;
       },
     },
     {

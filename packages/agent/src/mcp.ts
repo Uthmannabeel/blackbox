@@ -13,6 +13,7 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/sdk/client/
  * Auth: service-account API key via bearer header (autonomous agent mode).
  */
 let clientPromise: Promise<Client> | null = null;
+let sqlToolName: string | null = null;
 
 export function mcpConfigured(): boolean {
   return Boolean(process.env.CRDB_MCP_URL);
@@ -35,12 +36,20 @@ async function connect(): Promise<Client> {
 }
 
 function getClient(): Promise<Client> {
-  if (!clientPromise) clientPromise = connect();
+  if (!clientPromise) {
+    // Reset on failure so a transient connect error doesn't permanently brick
+    // the cached promise — the next call gets a fresh attempt.
+    clientPromise = connect().catch((err) => {
+      clientPromise = null;
+      throw err;
+    });
+  }
   return clientPromise;
 }
 
-/** Find the MCP tool whose name looks like a read-only SQL runner. */
+/** Find (once) the MCP tool whose name looks like a read-only SQL runner. */
 async function findSqlTool(client: Client): Promise<string> {
+  if (sqlToolName) return sqlToolName;
   const { tools } = await client.listTools();
   const match =
     tools.find((t) => /run.*sql|read.*sql|sql.*query|query/i.test(t.name)) ??
@@ -50,7 +59,8 @@ async function findSqlTool(client: Client): Promise<string> {
       `No SQL tool found on MCP server. Available: ${tools.map((t) => t.name).join(", ")}`,
     );
   }
-  return match.name;
+  sqlToolName = match.name;
+  return sqlToolName;
 }
 
 /**

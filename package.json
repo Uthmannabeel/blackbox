@@ -12,9 +12,9 @@
   "scripts": {
     "build": "tsc --build",
     "typecheck": "tsc --build --dry",
-    "db:schema": "node --loader ts-node/esm packages/memory/src/scripts/applySchema.ts",
-    "db:seed": "node --loader ts-node/esm packages/memory/src/scripts/seed.ts",
-    "agent:dev": "node --loader ts-node/esm packages/agent/src/cli.ts",
+    "db:schema": "npm run build && node packages/memory/dist/scripts/applySchema.js",
+    "db:seed": "npm run build && node packages/memory/dist/scripts/seed.js",
+    "agent:dev": "npm run build && node packages/agent/dist/cli.js",
     "dev": "npm run dev -w @blackbox/web",
     "dev:mock": "node scripts/mockdev.mjs",
     "web:build": "npm run build -w @blackbox/web",

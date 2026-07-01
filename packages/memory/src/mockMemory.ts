@@ -10,6 +10,7 @@ import type {
   MemoryKind,
   RecallHit,
   Runbook,
+  Service,
   Severity,
 } from "./types.js";
 
@@ -40,7 +41,7 @@ export class MockMemoryService implements IMemoryService {
   private runbooks: Vec<Runbook>[] = [];
   private memories: Vec<MemoryItem>[] = [];
   private states = new Map<string, IncidentStateRecord>();
-  private serviceIds = new Map<string, string>();
+  private services: Service[] = [];
   private seeded: Promise<void>;
   private regionCursor = 0;
 
@@ -55,7 +56,15 @@ export class MockMemoryService implements IMemoryService {
   }
 
   private async seed(): Promise<void> {
-    for (const s of SERVICES) this.serviceIds.set(s.name, randomUUID());
+    for (const s of SERVICES) {
+      this.services.push({
+        id: randomUUID(),
+        name: s.name,
+        environment: "production",
+        ownerTeam: s.team,
+        region: this.nextRegion(),
+      });
+    }
 
     for (const inc of HISTORICAL_INCIDENTS) {
       const embedding = await embed(`${inc.title}\n\n${inc.summary}`);
@@ -63,7 +72,7 @@ export class MockMemoryService implements IMemoryService {
         embedding,
         row: {
           id: randomUUID(),
-          serviceId: this.serviceIds.get(inc.service)!,
+          serviceId: this.services.find((s) => s.name === inc.service)!.id,
           title: inc.title,
           summary: inc.summary,
           severity: inc.severity,
@@ -90,6 +99,33 @@ export class MockMemoryService implements IMemoryService {
         },
       });
     }
+  }
+
+  async listServices(): Promise<Service[]> {
+    await this.seeded;
+    return [...this.services];
+  }
+
+  async resolveService(name: string): Promise<Service> {
+    await this.seeded;
+    const normalized = name.trim().toLowerCase();
+    let svc = this.services.find((s) => s.name === normalized);
+    if (!svc) {
+      svc = {
+        id: randomUUID(),
+        name: normalized,
+        environment: "production",
+        ownerTeam: null,
+        region: this.nextRegion(),
+      };
+      this.services.push(svc);
+    }
+    return svc;
+  }
+
+  async getIncident(incidentId: string): Promise<Incident | null> {
+    await this.seeded;
+    return this.incidents.find((i) => i.row.id === incidentId)?.row ?? null;
   }
 
   async recordIncident(input: {
@@ -191,6 +227,18 @@ export class MockMemoryService implements IMemoryService {
       }))
       .sort((a, b) => a.distance - b.distance)
       .slice(0, limit);
+  }
+
+  async recentMemories(limit = 12, sessionId?: string): Promise<MemoryItem[]> {
+    await this.seeded;
+    const capped = Math.max(1, Math.min(50, Math.floor(limit)));
+    const rows = sessionId
+      ? this.memories.filter((m) => m.row.sessionId === sessionId)
+      : this.memories;
+    return rows
+      .slice(-capped)
+      .reverse()
+      .map((m) => m.row);
   }
 
   async getIncidentState(incidentId: string): Promise<IncidentStateRecord | null> {

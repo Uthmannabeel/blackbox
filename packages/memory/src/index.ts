@@ -11,9 +11,18 @@ export { isMock, loadEnv } from "./env.js";
 export * from "./types.js";
 
 /**
- * Return the right memory backend for the current environment: the in-memory
+ * Return the shared memory backend for the current environment: the in-memory
  * mock when BLACKBOX_MOCK is set, otherwise the CockroachDB-backed service.
+ *
+ * Singleton by design — agents and API routes must see the same store. The
+ * real service is stateless over the pg pool, and in mock mode a shared
+ * instance is what makes the memory behave like one database.
  */
+let shared: IMemoryService | undefined;
+
 export function createMemoryService(): IMemoryService {
-  return isMock() ? new MockMemoryService() : new MemoryService();
+  if (!shared) {
+    shared = isMock() ? new MockMemoryService() : new MemoryService();
+  }
+  return shared;
 }

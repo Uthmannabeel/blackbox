@@ -9,6 +9,7 @@ import type {
   MemoryKind,
   RecallHit,
   Runbook,
+  Service,
   Severity,
 } from "./types.js";
 
@@ -33,6 +34,54 @@ export class MemoryService implements IMemoryService {
     // (SET does not accept bind parameters), so we never let it be arbitrary.
     const requested = Math.floor(opts.beamSize ?? 64);
     this.beamSize = Math.max(1, Math.min(2048, Number.isFinite(requested) ? requested : 64));
+  }
+
+  /**
+   * Run one vector-search statement with the tuned beam size applied via
+   * SET LOCAL inside a transaction, so the setting cannot leak onto the
+   * pooled connection after release.
+   */
+  private async searchWithBeam(sql: string, params: unknown[]): Promise<any[]> {
+    const client = await getPool().connect();
+    try {
+      await client.query("BEGIN");
+      await client.query(`SET LOCAL vector_search_beam_size = ${this.beamSize}`);
+      const { rows } = await client.query(sql, params);
+      await client.query("COMMIT");
+      return rows;
+    } catch (err) {
+      try {
+        await client.query("ROLLBACK");
+      } catch {
+        /* connection may be gone; release below */
+      }
+      throw err;
+    } finally {
+      client.release();
+    }
+  }
+
+  // ---- Fleet: services ------------------------------------------------------
+
+  async listServices(): Promise<Service[]> {
+    const { rows } = await getPool().query(
+      `SELECT id, name, environment, owner_team, crdb_region::string AS region
+         FROM services ORDER BY name`,
+    );
+    return rows.map(mapService);
+  }
+
+  /** Agents refer to services by name; resolve (or lazily create) the record. */
+  async resolveService(name: string): Promise<Service> {
+    const normalized = name.trim().toLowerCase();
+    const { rows } = await getPool().query(
+      `INSERT INTO services (name, environment)
+       VALUES ($1, 'production')
+       ON CONFLICT (name, environment) DO UPDATE SET name = excluded.name
+       RETURNING id, name, environment, owner_team, crdb_region::string AS region`,
+      [normalized],
+    );
+    return mapService(rows[0]);
   }
 
   // ---- Episodic memory: incidents -----------------------------------------
@@ -63,6 +112,16 @@ export class MemoryService implements IMemoryService {
     return mapIncident(rows[0]);
   }
 
+  async getIncident(incidentId: string): Promise<Incident | null> {
+    const { rows } = await getPool().query(
+      `SELECT id, service_id, title, summary, severity, status, signals,
+              resolution, crdb_region::string AS region, opened_at, resolved_at
+         FROM incidents WHERE id = $1`,
+      [incidentId],
+    );
+    return rows[0] ? mapIncident(rows[0]) : null;
+  }
+
   /** Close out an incident with the resolution the agent (or human) applied. */
   async resolveIncident(incidentId: string, resolution: string): Promise<void> {
     await getPool().query(
@@ -82,23 +141,17 @@ export class MemoryService implements IMemoryService {
     limit = 5,
   ): Promise<RecallHit<Incident>[]> {
     const q = toVectorLiteral(await embed(situation));
-    const client = await getPool().connect();
-    try {
-      await client.query(`SET vector_search_beam_size = ${this.beamSize}`);
-      const { rows } = await client.query(
-        `SELECT id, service_id, title, summary, severity, status, signals,
-                resolution, crdb_region::string AS region, opened_at, resolved_at,
-                embedding <-> $1 AS distance
-           FROM incidents
-          WHERE status = 'resolved' AND resolution IS NOT NULL
-          ORDER BY embedding <-> $1
-          LIMIT $2`,
-        [q, limit],
-      );
-      return rows.map((r) => ({ item: mapIncident(r), distance: Number(r.distance) }));
-    } finally {
-      client.release();
-    }
+    const rows = await this.searchWithBeam(
+      `SELECT id, service_id, title, summary, severity, status, signals,
+              resolution, crdb_region::string AS region, opened_at, resolved_at,
+              embedding <-> $1 AS distance
+         FROM incidents
+        WHERE status = 'resolved' AND resolution IS NOT NULL
+        ORDER BY embedding <-> $1
+        LIMIT $2`,
+      [q, limit],
+    );
+    return rows.map((r) => ({ item: mapIncident(r), distance: Number(r.distance) }));
   }
 
   // ---- Semantic/procedural memory: runbooks --------------------------------
@@ -121,21 +174,15 @@ export class MemoryService implements IMemoryService {
   /** Retrieve the runbooks most relevant to the current situation. */
   async recallRunbooks(situation: string, limit = 3): Promise<RecallHit<Runbook>[]> {
     const q = toVectorLiteral(await embed(situation));
-    const client = await getPool().connect();
-    try {
-      await client.query(`SET vector_search_beam_size = ${this.beamSize}`);
-      const { rows } = await client.query(
-        `SELECT id, title, body, tags, crdb_region::string AS region,
-                embedding <-> $1 AS distance
-           FROM runbooks
-          ORDER BY embedding <-> $1
-          LIMIT $2`,
-        [q, limit],
-      );
-      return rows.map((r) => ({ item: mapRunbook(r), distance: Number(r.distance) }));
-    } finally {
-      client.release();
-    }
+    const rows = await this.searchWithBeam(
+      `SELECT id, title, body, tags, crdb_region::string AS region,
+              embedding <-> $1 AS distance
+         FROM runbooks
+        ORDER BY embedding <-> $1
+        LIMIT $2`,
+      [q, limit],
+    );
+    return rows.map((r) => ({ item: mapRunbook(r), distance: Number(r.distance) }));
   }
 
   // ---- Working + long-term stream: agent_memory ----------------------------
@@ -166,25 +213,52 @@ export class MemoryService implements IMemoryService {
     return mapMemory(rows[0]);
   }
 
-  /** Semantic recall over the agent's own memory stream, importance-weighted. */
+  /**
+   * Semantic recall over the agent's own memory stream, importance-weighted.
+   * The SQL orders by pure distance so the C-SPANN vector index can serve it
+   * (an expression ordering would force a full scan); we over-fetch 3x and
+   * apply the importance re-ranking in the application layer.
+   */
   async recallMemories(query: string, limit = 6): Promise<RecallHit<MemoryItem>[]> {
     const q = toVectorLiteral(await embed(query));
-    const client = await getPool().connect();
-    try {
-      await client.query(`SET vector_search_beam_size = ${this.beamSize}`);
-      const { rows } = await client.query(
-        `SELECT id, session_id, incident_id, kind, content, importance,
-                crdb_region::string AS region, created_at,
-                embedding <-> $1 AS distance
-           FROM agent_memory
-          ORDER BY (embedding <-> $1) * (1.0 - 0.3 * importance)
-          LIMIT $2`,
-        [q, limit],
-      );
-      return rows.map((r) => ({ item: mapMemory(r), distance: Number(r.distance) }));
-    } finally {
-      client.release();
-    }
+    const rows = await this.searchWithBeam(
+      `SELECT id, session_id, incident_id, kind, content, importance,
+              crdb_region::string AS region, created_at,
+              embedding <-> $1 AS distance
+         FROM agent_memory
+        ORDER BY embedding <-> $1
+        LIMIT $2`,
+      [q, limit * 3],
+    );
+    return rows
+      .map((r) => ({ item: mapMemory(r), distance: Number(r.distance) }))
+      .sort(
+        (a, b) =>
+          a.distance * (1 - 0.3 * a.item.importance) -
+          b.distance * (1 - 0.3 * b.item.importance),
+      )
+      .slice(0, limit);
+  }
+
+  /** Most recent memory-stream entries, for the UI feed. */
+  async recentMemories(limit = 12, sessionId?: string): Promise<MemoryItem[]> {
+    const capped = Math.max(1, Math.min(50, Math.floor(limit)));
+    const { rows } = sessionId
+      ? await getPool().query(
+          `SELECT id, session_id, incident_id, kind, content, importance,
+                  crdb_region::string AS region, created_at
+             FROM agent_memory WHERE session_id = $2
+            ORDER BY created_at DESC LIMIT $1`,
+          [capped, sessionId],
+        )
+      : await getPool().query(
+          `SELECT id, session_id, incident_id, kind, content, importance,
+                  crdb_region::string AS region, created_at
+             FROM agent_memory
+            ORDER BY created_at DESC LIMIT $1`,
+          [capped],
+        );
+    return rows.map(mapMemory);
   }
 
   // ---- Structured live state: incident_state -------------------------------
@@ -207,22 +281,54 @@ export class MemoryService implements IMemoryService {
     actionsTaken: string[];
     nextSteps: string[];
   }): Promise<void> {
-    await getPool().query(
-      `UPSERT INTO incident_state
-         (incident_id, phase, hypotheses, actions_taken, next_steps, updated_at)
-       VALUES ($1, $2, $3, $4, $5, now())`,
-      [
-        input.incidentId,
-        input.phase,
-        JSON.stringify(input.hypotheses),
-        JSON.stringify(input.actionsTaken),
-        JSON.stringify(input.nextSteps),
-      ],
+    // Pin the state row to its incident's home region. Without this, the
+    // crdb_region default (gateway region) means updates arriving through a
+    // different region would UPSERT a *second* (region, incident_id) row
+    // instead of updating the existing one.
+    const { rows } = await getPool().query(
+      `SELECT crdb_region::string AS region FROM incidents WHERE id = $1`,
+      [input.incidentId],
     );
+    const region: string | undefined = rows[0]?.region;
+
+    const values = [
+      input.incidentId,
+      input.phase,
+      JSON.stringify(input.hypotheses),
+      JSON.stringify(input.actionsTaken),
+      JSON.stringify(input.nextSteps),
+    ];
+
+    if (region) {
+      await getPool().query(
+        `UPSERT INTO incident_state
+           (crdb_region, incident_id, phase, hypotheses, actions_taken, next_steps, updated_at)
+         VALUES ($6::crdb_internal_region, $1, $2, $3, $4, $5, now())`,
+        [...values, region],
+      );
+    } else {
+      // Unknown incident id: fall back to the gateway-region default.
+      await getPool().query(
+        `UPSERT INTO incident_state
+           (incident_id, phase, hypotheses, actions_taken, next_steps, updated_at)
+         VALUES ($1, $2, $3, $4, $5, now())`,
+        values,
+      );
+    }
   }
 }
 
 // ---- row mappers -----------------------------------------------------------
+
+function mapService(r: any): Service {
+  return {
+    id: r.id,
+    name: r.name,
+    environment: r.environment,
+    ownerTeam: r.owner_team ?? null,
+    region: r.region,
+  };
+}
 
 function mapIncident(r: any): Incident {
   return {

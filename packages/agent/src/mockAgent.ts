@@ -53,10 +53,18 @@ export class MockAgent implements Agent {
     const rb = runbooks[0]?.item;
     const severity = guessSeverity(userMessage);
 
-    // 3. Open an incident.
-    events.push({ type: "tool_call", tool: "open_incident", input: { severity } });
+    // 3. Open an incident — resolve the service by name, like the real agent.
+    const services = await this.memory.listServices();
+    const named = services.find((s) => userMessage.toLowerCase().includes(s.name));
+    const svc = named ?? (await this.memory.resolveService("unknown-service"));
+
+    events.push({
+      type: "tool_call",
+      tool: "open_incident",
+      input: { service: svc.name, severity },
+    });
     const inc = await this.memory.recordIncident({
-      serviceId: top?.serviceId ?? "unknown",
+      serviceId: svc.id,
       title: firstLine(userMessage),
       summary: userMessage,
       severity,

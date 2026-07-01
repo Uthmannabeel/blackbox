@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { isMock } from "@blackbox/memory";
 import { getAgent } from "@/lib/agentSession";
 import { clientKey, rateLimit } from "@/lib/rateLimit";
 
@@ -9,6 +10,18 @@ export const dynamic = "force-dynamic";
 const MAX_MESSAGE_LEN = 4000;
 
 export async function POST(req: NextRequest) {
+  // Fail helpfully, not cryptically, when running real mode unconfigured.
+  if (!isMock() && !process.env.DATABASE_URL) {
+    return NextResponse.json(
+      {
+        error:
+          "BlackBox isn't configured yet: set DATABASE_URL (and AWS credentials) in .env, " +
+          "or run the offline demo with `npm run dev:mock` (BLACKBOX_MOCK=1).",
+      },
+      { status: 503 },
+    );
+  }
+
   try {
     const { sessionId, message } = (await req.json()) as {
       sessionId: string;

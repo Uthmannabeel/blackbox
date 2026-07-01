@@ -20,6 +20,13 @@ export interface RateLimitResult {
 }
 
 export function rateLimit(key: string, now: number = Date.now()): RateLimitResult {
+  // Opportunistic sweep so the map can't grow without bound.
+  if (buckets.size > 5_000) {
+    for (const [k, b] of buckets) {
+      if (now >= b.resetAt) buckets.delete(k);
+    }
+  }
+
   const bucket = buckets.get(key);
 
   if (!bucket || now >= bucket.resetAt) {

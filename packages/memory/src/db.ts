@@ -50,15 +50,5 @@ export function toVectorLiteral(embedding: number[]): string {
   return `[${embedding.join(",")}]`;
 }
 
-// Parse CockroachDB VECTOR values back into number[] when we read them.
-// pgvector registers OID at runtime; we parse defensively from the text form.
-export function parseVector(value: string | null): number[] | null {
-  if (!value) return null;
-  return value
-    .replace(/^\[|\]$/g, "")
-    .split(",")
-    .map((n) => Number(n));
-}
-
 // Ensure BIGINT/NUMERIC come back as strings, not lossy floats, where relevant.
 types.setTypeParser(20, (v) => v); // int8 -> string

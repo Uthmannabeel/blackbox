@@ -27,6 +27,11 @@ export async function handler(event: LambdaEvent) {
 
     let agent = warm.get(sessionId);
     if (!agent) {
+      // Bound the warm cache; durable memory lives in CockroachDB.
+      if (warm.size >= 100) {
+        const oldest = warm.keys().next().value;
+        if (oldest) warm.delete(oldest);
+      }
       agent = new BlackBoxAgent({ sessionId });
       warm.set(sessionId, agent);
     }

@@ -14,9 +14,10 @@ Your memory lives in CockroachDB and survives outages. Work like a senior on-cal
 1. On any new problem, FIRST recall_similar_incidents and recall_runbooks — never
    start from scratch if institutional memory can help.
 2. Reason explicitly about hypotheses; use inspect_cluster to check facts against
-   the live database when useful.
-3. When a real incident is confirmed, open_incident, then keep update_incident_state
-   current as you move through triage -> diagnose -> mitigate -> resolve.
+   the live database when useful, and list_services to identify the fleet.
+3. When a real incident is confirmed, open_incident with the SERVICE NAME (e.g.
+   'checkout-api'), then keep update_incident_state current as you move through
+   triage -> diagnose -> mitigate -> resolve.
 4. When fixed, resolve_incident with a crisp resolution so the fix becomes memory
    for next time.
 
@@ -74,12 +75,56 @@ export class BlackBoxAgent implements Agent {
     return this.ctx.currentIncidentId;
   }
 
+  /**
+   * Queue a durable-memory write without blocking the reasoning loop — each
+   * write costs a Bedrock embedding round-trip, so serializing them inside the
+   * loop would add seconds of latency per turn. flushWrites() awaits them all
+   * before chat() returns (required for Lambda's freeze semantics).
+   */
+  private pendingWrites: Promise<unknown>[] = [];
+
+  private recordMemory(input: Parameters<IMemoryService["remember"]>[0]): void {
+    this.pendingWrites.push(
+      this.memory.remember(input).catch((err) => {
+        console.error("[agent] memory write failed:", (err as Error).message);
+      }),
+    );
+  }
+
+  private async flushWrites(): Promise<void> {
+    await Promise.allSettled(this.pendingWrites);
+    this.pendingWrites = [];
+  }
+
+  /**
+   * Cap the in-flight Bedrock conversation. Trims whole turns from the front
+   * (a turn boundary is a user message containing plain text — tool results
+   * are user-role but text-less), so toolUse/toolResult pairs stay intact.
+   */
+  private trimHistory(maxMessages = 30): void {
+    if (this.history.length <= maxMessages) return;
+    let i = this.history.length - maxMessages;
+    while (i < this.history.length) {
+      const m = this.history[i];
+      if (
+        m?.role === "user" &&
+        m.content?.some((c) => typeof (c as { text?: unknown }).text === "string")
+      ) {
+        break;
+      }
+      i++;
+    }
+    this.history.splice(0, i);
+  }
+
   /** Handle one operator message; returns the final reply plus a trace of events. */
   async chat(userMessage: string, maxSteps = 8): Promise<AgentResult> {
     const events: AgentEvent[] = [];
 
-    // Persist the operator turn to durable memory.
-    await this.memory.remember({
+    this.trimHistory();
+
+    // Persist the operator turn to durable memory (non-blocking).
+    this.recordMemory({
       sessionId: this.ctx.sessionId,
       incidentId: this.ctx.currentIncidentId,
       kind: "user_msg",
@@ -115,13 +160,14 @@ export class BlackBoxAgent implements Agent {
           .join("\n")
           .trim();
 
-        await this.memory.remember({
+        this.recordMemory({
           sessionId: this.ctx.sessionId,
           incidentId: this.ctx.currentIncidentId,
           kind: "agent_msg",
           content: reply || "(no text)",
           importance: 0.6,
         });
+        await this.flushWrites();
         return { reply, events };
       }
 
@@ -144,9 +190,9 @@ export class BlackBoxAgent implements Agent {
         }
         events.push({ type: "tool_result", tool: name, result: output });
 
-        // Record significant actions as durable memory.
+        // Record significant actions as durable memory (non-blocking).
         if (tool && name !== "recall_memories") {
-          await this.memory.remember({
+          this.recordMemory({
             sessionId: this.ctx.sessionId,
             incidentId: this.ctx.currentIncidentId,
             kind: name.startsWith("recall") || name === "inspect_cluster" ? "observation" : "action",
@@ -166,6 +212,7 @@ export class BlackBoxAgent implements Agent {
       this.history.push({ role: "user", content: toolResults });
     }
 
+    await this.flushWrites();
     return {
       reply: "Reached step limit without a final answer. Consider narrowing the request.",
       events,

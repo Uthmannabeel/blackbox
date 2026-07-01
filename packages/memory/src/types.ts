@@ -75,6 +75,9 @@ export interface IncidentStateRecord {
  * agent works identically online and offline.
  */
 export interface IMemoryService {
+  listServices(): Promise<Service[]>;
+  /** Find a service by name, creating it if unknown (agents pass names, not UUIDs). */
+  resolveService(name: string): Promise<Service>;
   recordIncident(input: {
     serviceId: string;
     title: string;
@@ -82,6 +85,7 @@ export interface IMemoryService {
     severity: Severity;
     signals?: unknown;
   }): Promise<Incident>;
+  getIncident(incidentId: string): Promise<Incident | null>;
   resolveIncident(incidentId: string, resolution: string): Promise<void>;
   recallSimilarIncidents(situation: string, limit?: number): Promise<RecallHit<Incident>[]>;
   upsertRunbook(input: { title: string; body: string; tags?: string[] }): Promise<Runbook>;
@@ -94,6 +98,8 @@ export interface IMemoryService {
     importance?: number;
   }): Promise<MemoryItem>;
   recallMemories(query: string, limit?: number): Promise<RecallHit<MemoryItem>[]>;
+  /** Most recent entries in the agent's memory stream (for the UI feed). */
+  recentMemories(limit?: number, sessionId?: string): Promise<MemoryItem[]>;
   getIncidentState(incidentId: string): Promise<IncidentStateRecord | null>;
   updateIncidentState(input: {
     incidentId: string;

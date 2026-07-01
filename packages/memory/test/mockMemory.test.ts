@@ -47,6 +47,41 @@ describe("MockMemoryService", () => {
     expect(dist.reduce((s, d) => s + d.rows, 0)).toBeGreaterThan(0);
   });
 
+  test("lists the seeded fleet and resolves services by name", async () => {
+    const services = await mem.listServices();
+    expect(services.map((s) => s.name)).toContain("checkout-api");
+
+    // Existing name resolves to the same record.
+    const existing = await mem.resolveService("checkout-api");
+    expect(services.find((s) => s.name === "checkout-api")?.id).toBe(existing.id);
+
+    // Unknown name is created (normalized), then reused.
+    const created = await mem.resolveService("  NEW-Service  ");
+    expect(created.name).toBe("new-service");
+    const again = await mem.resolveService("new-service");
+    expect(again.id).toBe(created.id);
+  });
+
+  test("recentMemories returns newest first", async () => {
+    await mem.remember({ sessionId: "s-recent", kind: "action", content: "older entry" });
+    await mem.remember({ sessionId: "s-recent", kind: "action", content: "newer entry" });
+    const rows = await mem.recentMemories(5, "s-recent");
+    expect(rows[0]!.content).toBe("newer entry");
+    expect(rows[1]!.content).toBe("older entry");
+  });
+
+  test("getIncident round-trips a recorded incident", async () => {
+    const inc = await mem.recordIncident({
+      serviceId: "svc-x",
+      title: "lookup test",
+      summary: "s",
+      severity: "SEV3",
+    });
+    const found = await mem.getIncident(inc.id);
+    expect(found?.title).toBe("lookup test");
+    expect(await mem.getIncident("00000000-0000-0000-0000-000000000000")).toBeNull();
+  });
+
   test("persists and reads back live incident state", async () => {
     const inc = await mem.recordIncident({
       serviceId: "svc",
