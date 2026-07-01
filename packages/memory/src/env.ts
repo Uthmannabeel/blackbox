@@ -29,4 +29,15 @@ export function isMock(): boolean {
   return v === "1" || v === "true" || v === "yes";
 }
 
+/**
+ * Embeddings-only mock: real CockroachDB, deterministic fake embeddings.
+ * Used by the local chaos rig and scale seeding before Bedrock is configured.
+ * Full mock mode implies it.
+ */
+export function isMockEmbeddings(): boolean {
+  loadEnv();
+  const v = process.env.BLACKBOX_MOCK_EMBEDDINGS;
+  return v === "1" || v === "true" || v === "yes" || isMock();
+}
+
 loadEnv();

@@ -7,7 +7,7 @@ export { MemoryService } from "./memory.js";
 export { MockMemoryService } from "./mockMemory.js";
 export { getPool, closePool } from "./db.js";
 export { embed, EMBED_DIM } from "./embeddings.js";
-export { isMock, loadEnv } from "./env.js";
+export { isMock, isMockEmbeddings, loadEnv } from "./env.js";
 export * from "./types.js";
 
 /**

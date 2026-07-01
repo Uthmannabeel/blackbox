@@ -2,7 +2,7 @@ import {
   BedrockRuntimeClient,
   InvokeModelCommand,
 } from "@aws-sdk/client-bedrock-runtime";
-import { isMock } from "./env.js";
+import { isMockEmbeddings } from "./env.js";
 
 /**
  * Embeddings via Amazon Bedrock — Titan Text Embeddings v2 (1024 dimensions),
@@ -23,7 +23,7 @@ function getClient(): BedrockRuntimeClient {
 }
 
 export async function embed(text: string): Promise<number[]> {
-  if (isMock()) return mockEmbed(text);
+  if (isMockEmbeddings()) return mockEmbed(text);
 
   const modelId = process.env.BEDROCK_EMBED_MODEL_ID ?? "amazon.titan-embed-text-v2:0";
 
