@@ -133,6 +133,15 @@ async function main() {
 
   console.log(`Scale-seeding ${COUNT} resolved incidents (concurrency ${CONCURRENCY}) ...`);
 
+  // Distribute home regions explicitly. In production every region's app
+  // instances write via their local gateway, so rows naturally spread across
+  // regions; a single-gateway seeder must simulate that or every row would be
+  // pinned to the seeder's region.
+  const { rows: regionRows } = await pool.query(`SELECT region FROM [SHOW REGIONS FROM DATABASE]`);
+  const regions: string[] = regionRows.map((r: any) => r.region);
+  if (regions.length === 0) throw new Error("database has no regions configured");
+  console.log(`Distributing rows across: ${regions.join(", ")}`);
+
   // Ensure services exist; collect ids.
   const serviceIds: string[] = [];
   for (const s of SERVICES) {
@@ -167,10 +176,11 @@ async function main() {
     const openedAt = new Date(Date.now() - Math.floor(rand() * 730) * 86_400_000);
 
     const embedding = await embed(`${title}\n\n${summary}`);
+    const region = regions[i % regions.length]!;
     await pool.query(
       `INSERT INTO incidents
-         (service_id, title, summary, severity, status, resolution, embedding, opened_at, resolved_at)
-       VALUES ($1, $2, $3, $4, 'resolved', $5, $6, $7, $7)`,
+         (crdb_region, service_id, title, summary, severity, status, resolution, embedding, opened_at, resolved_at)
+       VALUES ($8::crdb_internal_region, $1, $2, $3, $4, 'resolved', $5, $6, $7, $7)`,
       [
         serviceIds[svcIdx],
         title,
@@ -179,6 +189,7 @@ async function main() {
         resolution,
         toVectorLiteral(embedding),
         openedAt.toISOString(),
+        region,
       ],
     );
   }

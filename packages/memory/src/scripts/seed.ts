@@ -12,6 +12,12 @@ loadEnv();
 async function main() {
   const pool = getPool();
 
+  // Spread home regions like multi-gateway production writes would.
+  const { rows: regionRows } = await pool.query(`SELECT region FROM [SHOW REGIONS FROM DATABASE]`);
+  const regions: string[] = regionRows.map((r: any) => r.region);
+  let rr = 0;
+  const nextRegion = () => regions[rr++ % Math.max(1, regions.length)];
+
   console.log("Seeding services ...");
   const serviceIds = new Map<string, string>();
   for (const s of SERVICES) {
@@ -30,8 +36,8 @@ async function main() {
     const embedding = await embed(`${inc.title}\n\n${inc.summary}`);
     await pool.query(
       `INSERT INTO incidents
-         (service_id, title, summary, severity, status, resolution, embedding, resolved_at)
-       VALUES ($1, $2, $3, $4, 'resolved', $5, $6, now())`,
+         (crdb_region, service_id, title, summary, severity, status, resolution, embedding, resolved_at)
+       VALUES ($7::crdb_internal_region, $1, $2, $3, $4, 'resolved', $5, $6, now())`,
       [
         serviceIds.get(inc.service),
         inc.title,
@@ -39,6 +45,7 @@ async function main() {
         inc.severity,
         inc.resolution,
         toVectorLiteral(embedding),
+        nextRegion(),
       ],
     );
   }
@@ -47,8 +54,9 @@ async function main() {
   for (const rb of RUNBOOKS) {
     const embedding = await embed(`${rb.title}\n\n${rb.body}`);
     await pool.query(
-      `INSERT INTO runbooks (title, body, tags, embedding) VALUES ($1, $2, $3, $4)`,
-      [rb.title, rb.body, rb.tags, toVectorLiteral(embedding)],
+      `INSERT INTO runbooks (crdb_region, title, body, tags, embedding)
+       VALUES ($5::crdb_internal_region, $1, $2, $3, $4)`,
+      [rb.title, rb.body, rb.tags, toVectorLiteral(embedding), nextRegion()],
     );
   }
 
