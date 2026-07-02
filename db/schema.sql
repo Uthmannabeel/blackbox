@@ -66,11 +66,15 @@ CREATE TABLE IF NOT EXISTS incidents (
     CONSTRAINT incidents_pkey PRIMARY KEY (crdb_region, id),
     -- Distributed vector index, partitioned by region prefix so the k-means
     -- tree is co-located with the data it indexes (survivable + low-latency).
-    VECTOR INDEX incidents_embedding_idx (crdb_region, embedding)
+    VECTOR INDEX incidents_embedding_idx (crdb_region, embedding),
+    -- Secondary indexes are defined INLINE deliberately: post-hoc
+    -- `CREATE INDEX` on a REGIONAL BY ROW table with an inline vector index
+    -- hits an internal error (XX000, "PARTITION ALL BY ... but index does not
+    -- have matching PARTITION BY") in v25.4.0's declarative schema changer.
+    -- Inline definitions receive implicit region partitioning correctly.
+    INDEX incidents_service_idx (service_id, opened_at DESC),
+    INDEX incidents_status_idx (status, severity)
 ) LOCALITY REGIONAL BY ROW;
-
-CREATE INDEX IF NOT EXISTS incidents_service_idx ON incidents (service_id, opened_at DESC);
-CREATE INDEX IF NOT EXISTS incidents_status_idx  ON incidents (status, severity);
 
 -- ---------------------------------------------------------------------------
 -- runbooks: semantic (procedural) memory. Remediation playbooks the agent
@@ -104,10 +108,10 @@ CREATE TABLE IF NOT EXISTS agent_memory (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     crdb_region crdb_internal_region NOT NULL DEFAULT default_to_database_primary_region(gateway_region())::crdb_internal_region,
     CONSTRAINT agent_memory_pkey PRIMARY KEY (crdb_region, id),
-    VECTOR INDEX agent_memory_embedding_idx (crdb_region, embedding)
+    VECTOR INDEX agent_memory_embedding_idx (crdb_region, embedding),
+    -- Inline for the same declarative-schema-changer reason as incidents.
+    INDEX agent_memory_session_idx (session_id, created_at)
 ) LOCALITY REGIONAL BY ROW;
-
-CREATE INDEX IF NOT EXISTS agent_memory_session_idx ON agent_memory (session_id, created_at);
 
 -- ---------------------------------------------------------------------------
 -- incident_state: structured, strongly-consistent live state for an active

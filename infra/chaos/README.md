@@ -9,76 +9,96 @@ No cloud accounts needed.
 
 ## 1. Get the binary
 
-`infra/chaos/bin/cockroach.exe` (gitignored). Download from
-https://www.cockroachlabs.com/docs/releases/ (v25.2+ for vector indexes), or:
+`infra/chaos/bin/` (gitignored). v25.2+ required for vector indexes; we
+validated against **v25.4.0**:
 
 ```powershell
 # from repo root
-Invoke-WebRequest https://binaries.cockroachdb.com/cockroach-v25.4.2.windows-6.2-amd64.zip -OutFile infra\chaos\bin\cockroach.zip
+Invoke-WebRequest https://binaries.cockroachdb.com/cockroach-v25.4.0.windows-6.2-amd64.zip -OutFile infra\chaos\bin\cockroach.zip
 Expand-Archive infra\chaos\bin\cockroach.zip -DestinationPath infra\chaos\bin -Force
 ```
 
-## 2. Start the cluster (keep this terminal open — it's your kill switch)
+## 2. Start the cluster (via the driver)
+
+The driver keeps the demo shell's stdin open and exposes a localhost TCP
+control port (7777) so node-kills can be scripted:
 
 ```powershell
-.\infra\chaos\bin\<extracted-dir>\cockroach.exe demo --global --nodes 9 --no-example-database
+node infra\chaos\driver.mjs "infra\chaos\bin\cockroach-v25.4.0.windows-6.2-amd64\cockroach.exe" `
+  demo --insecure --global --nodes 9 --no-example-database --sql-port 26257 --http-port 8080 --set errexit=false
 ```
 
-The shell prints a connection URL like
-`postgresql://demo:<password>@127.0.0.1:26257/defaultdb?sslmode=require`.
-Copy it.
+Notes we learned the hard way:
+- `--insecure` is required on machines with corporate TLS interception (the
+  demo's own inter-node certs fail verification otherwise).
+- `--set errexit=false` keeps a malformed control command from killing the
+  whole shell (non-interactive shells exit on error by default).
+- Control commands must be LF-terminated; the driver strips stray CRs.
+- The demo trial license throttles after ~7 days; a fresh `demo` start is fine.
 
 ## 3. Set up the multi-region memory database
 
 ```powershell
 npm run build
-node packages\memory\dist\scripts\chaosSetup.js "<that url>"
+node packages\memory\dist\scripts\chaosSetup.js "postgresql://root@127.0.0.1:26257/defaultdb?sslmode=disable"
 ```
 
-This discovers the demo regions (us-east1 / us-west1 / europe-west1), creates
-`blackbox` with `SURVIVE REGION FAILURE`, and applies the schema. It prints the
-`DATABASE_URL` to put in `.env`.
+Discovers regions (us-east1 / us-west1 / europe-west1), creates `blackbox`
+with `SURVIVE REGION FAILURE`, applies the schema.
 
 ## 4. Seed memory (no Bedrock needed)
 
 ```powershell
-$env:BLACKBOX_MOCK_EMBEDDINGS='1'   # deterministic embeddings, real database
-npm run db:seed                      # the curated historical incidents
-npm run db:seed:scale                # +10,000 synthetic incidents for real C-SPANN scale
+$env:DATABASE_URL="postgresql://root@127.0.0.1:26257/blackbox?sslmode=disable"
+$env:BLACKBOX_MOCK_EMBEDDINGS='1'    # deterministic embeddings, real database
+npm run db:seed                      # curated historical incidents
+npm run db:seed:scale                # +10,000 synthetic incidents (~15 min: every
+                                     #  write pays real cross-region consensus)
 ```
 
 ## 5. Run the app against the real cluster
 
 ```powershell
-$env:BLACKBOX_MOCK_EMBEDDINGS='1'    # keep until Bedrock creds exist
-npm run dev                          # dashboard shows "live" with real per-region counts
+npm run dev    # with the env vars above — dashboard shows live per-region counts
 ```
 
 ## 6. The money shot — kill a region, memory survives
 
-In the demo shell (step 2), nodes 1-3 = us-east1, 4-6 = us-west1,
-7-9 = europe-west1 (check with `\demo ls`). Take down an entire region:
+Node → region map (`\demo ls`, or `SELECT node_id, locality FROM crdb_internal.gossip_nodes`):
 
+| Nodes | Region |
+|---|---|
+| 1-3 | us-east1 (app connects here via :26257) |
+| 4-6 | us-west1 |
+| 7-9 | europe-west1 (database PRIMARY region) |
+
+Kill the **primary region** (most dramatic honest test) via the control port:
+
+```powershell
+$c = New-Object Net.Sockets.TcpClient("127.0.0.1", 7777); $s = $c.GetStream()
+foreach ($n in 7,8,9) {
+  $b = [Text.Encoding]::UTF8.GetBytes("\demo shutdown $n`n"); $s.Write($b,0,$b.Length); $s.Flush(); Start-Sleep 2
+}
+$c.Close()
 ```
-\demo shutdown 1
-\demo shutdown 2
-\demo shutdown 3
+
+europe-west1 is now genuinely gone (3 of 9 nodes dead, including all primary-
+region replicas). Ask the agent something — recall still works. Restore:
+
+```powershell
+# same pattern with "\demo restart 7|8|9"
 ```
 
-us-east1 is now genuinely gone. Ask the agent something — recall still works;
-the regions panel still counts memories from surviving replicas. Bring it back:
+## Known CockroachDB quirk we hit (v25.4.0)
 
-```
-\demo restart 1
-\demo restart 2
-\demo restart 3
-```
+Post-hoc `CREATE INDEX` on a `REGIONAL BY ROW` table that has an inline
+`VECTOR INDEX` fails — internal error XX000 ("table has PARTITION ALL BY
+defined, but index does not have matching PARTITION BY"), or
+"decoding: invalid uuid length of 2" for UUID-prefixed indexes. Workaround
+(applied in `db/schema.sql`): define secondary indexes **inline** in
+`CREATE TABLE`. Reported as product feedback in our submission.
 
-## Notes
+## Cleanup
 
-- The demo cluster is in-memory: data resets when the shell exits. Re-run
-  steps 3-4 (seconds with mock embeddings).
-- `--global` simulates real inter-region latency, so latency numbers you show
-  are honest too.
-- The same `chaosSetup.js` works against CockroachDB Cloud later — it discovers
-  regions instead of assuming names.
+The cluster is in-memory: exit the driver (Ctrl+C) and everything vanishes.
+Re-setup takes seconds (plus seed time).
