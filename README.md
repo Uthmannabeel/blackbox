@@ -27,6 +27,22 @@ designed around the things **only CockroachDB** does well:
 One system is both the **system of record** and the **agent memory layer** — no
 stitching a vector DB to a state store to a cache.
 
+**And we prove it, not claim it:** the repo ships a local 9-node, 3-region
+chaos rig ([`infra/chaos/`](./infra/chaos/README.md)). We killed every node in
+the database's primary region with 10,000+ memories loaded — recall kept
+answering in ~140ms (including memories homed in the dead region), and writes
+homed in the dead region kept committing.
+
+## Beyond recall: memory that compounds, and an agent that triages its own brain
+
+- **Learning loop** — when the agent resolves an incident, the resolution is
+  automatically distilled into a new *learned runbook* (procedural memory).
+  The next similar incident recalls the fix the agent just learned.
+- **Self-diagnosis** — the agent's memory *is* a CockroachDB cluster, and its
+  `diagnose_memory` tool observes per-region node liveness and the survival
+  goal, so mid-outage it can explain: "one region is down; all my memories
+  remain readable and writable."
+
 ---
 
 ## Required tooling used

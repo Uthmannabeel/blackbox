@@ -41,6 +41,10 @@ Notes we learned the hard way:
   whole shell (non-interactive shells exit on error by default).
 - Control commands must be LF-terminated; the driver strips stray CRs.
 - The demo trial license throttles after ~7 days; a fresh `demo` start is fine.
+- The rig is disposable, not durable: repeated kill/restore cycles on one
+  in-memory cluster can wedge a system raft range (we saw r33 leaderless after
+  several cycles + laptop memory pressure). **Start a fresh cluster before
+  recording, and do ONE kill → diagnose → restore cycle per run.**
 
 ## 3. Set up the multi-region memory database
 

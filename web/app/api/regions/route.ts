@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
-import { createMemoryService, getPool, isMock, MockMemoryService } from "@blackbox/memory";
+import {
+  createMemoryService,
+  getPool,
+  isMock,
+  MockMemoryService,
+  regionLiveness,
+} from "@blackbox/memory";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -66,11 +72,25 @@ export async function GET(req: NextRequest) {
       `SELECT survival_goal FROM [SHOW DATABASES] WHERE database_name = current_database()`,
     );
 
+    // True node liveness per region from gossip — the UI shows genuinely-down
+    // regions, not client-side toggles. Best-effort (gossip view can lag).
+    let liveness: { region: string; liveNodes: number; totalNodes: number }[] = [];
+    try {
+      liveness = (await regionLiveness()).map((r) => ({
+        region: r.region,
+        liveNodes: r.liveNodes,
+        totalNodes: r.totalNodes,
+      }));
+    } catch {
+      /* non-fatal */
+    }
+
     return NextResponse.json({
       live: true,
       regions: regions.rows,
       distribution: distribution.rows,
       survivalGoal: survivability.rows[0]?.survival_goal ?? "unknown",
+      liveness,
     });
   } catch (err) {
     // No live cluster yet — return the intended demo topology so the UI renders.

@@ -1,72 +1,82 @@
-# BlackBox — demo video script (target 2:45 / max 3:00)
+# BlackBox — demo video script v2 (target 2:50 / max 3:00)
 
-Format: screen recording + voiceover. Keep cuts tight. Show the product doing
-real work; let the chaos moment breathe.
+Screen recording + voiceover. Three acts: **recall → learn → survive.**
+Everything on screen is real: live cluster, real node kills, live queries.
+
+Setup before recording: chaos rig running (infra/chaos/README.md), 10k corpus
+seeded, `npm run dev` against the rig (or CockroachDB Cloud + Bedrock if
+provisioned). Stats strip visible: “10,011 memories · recall ~140ms · 3/3 regions”.
 
 ---
 
-### 0:00–0:20 — Hook (talking head or title card)
+### 0:00–0:15 — Hook
 > "Every AI agent claims to have memory — until the database behind it fails.
-> BlackBox is an incident-response copilot whose memory is built to survive the
-> very outages it's helping you fix. Like a flight recorder for your
-> infrastructure."
+> This is BlackBox: an incident copilot whose memory survives the crash. And
+> I'm going to prove that by killing a region live, on camera."
 
-On screen: title "BlackBox — the incident copilot whose memory survives the crash."
+On screen: dashboard. Stats strip shows 10,011 memories / 3/3 regions.
 
-### 0:20–0:35 — The problem
-> "When you're on call at 3am, you don't want an agent that starts from zero.
-> You want one that remembers every incident your team has ever solved — and
-> keeps remembering even while a region is on fire."
+### 0:15–0:55 — Act I: RECALL (institutional memory at scale)
+Type: *"checkout-api p99 latency just jumped to 8s and connections are maxed out."*
+> "The agent searches ten thousand past incidents in CockroachDB — semantic
+> recall over a distributed vector index, about 140 milliseconds — and finds
+> the connection-pool exhaustion we solved before, plus the matching runbook.
+> It opens an incident and writes its working state to durable memory."
 
-On screen: the dashboard, "cluster live" pill, three regions healthy.
+On screen: tool trace fires; reply cites the past incident; incident card
+appears (severity, phase, hypotheses); memory stream fills up with region badges.
 
-### 0:35–1:20 — Reason / recall / act (core demo)
-Type: *"checkout-api p99 latency just spiked to 8s and connections are maxed out."*
-> "Watch the trace. First it recalls similar past incidents from CockroachDB…"
+### 0:55–1:25 — Act II: LEARN (memory that compounds)
+Click chip: *"We raised the pool size — mark it resolved."*
+> "Here's the part most demos fake: when an incident resolves, BlackBox
+> distills the fix into a NEW runbook — procedural memory, written back to the
+> database. The next time anything similar happens, the agent recalls the fix
+> it just learned. The memory compounds. That's the difference between a chat
+> log and agentic memory."
 
-On screen: tool trace fires — `recall_similar_incidents`, `recall_runbooks`.
-> "…and it finds it: a connection-pool exhaustion incident we resolved before,
-> its memory pinned to us-east-1. It pulls the matching runbook, opens a new
-> incident, and writes the live state back to memory."
+On screen: resolve trace shows "Resolving incident + distilling runbook";
+memory stream shows the 💭 reflection entry.
 
-On screen: agent reply citing the past incident + resolution; active incident id appears.
+### 1:25–2:20 — Act III: SURVIVE (the money shot)
+> "Now the reason this runs on CockroachDB. Watch the region panel — three
+> regions, every memory pinned to a home region, REGIONAL BY ROW."
 
-### 1:20–1:45 — Why CockroachDB (memory model)
-> "This isn't just a vector store. Every memory — incidents, runbooks, the
-> agent's own reasoning — is REGIONAL BY ROW. An EU incident's data physically
-> stays in the EU. And it's all one strongly-consistent system of record."
+Click **⚡ KILL us-east1 (REAL)**.
+> "That button is not a simulation. It's draining every node in the region —
+> watch them go: zero of three nodes. An entire region of the database is dead."
 
-On screen: memory panel — per-region counts across us-east-1 / eu-west-1 / ap-south-1.
+On screen: region flips to 0/3 nodes — DOWN; stats strip: 2/3 regions.
+> "And the agent? Ask it yourself."
 
-### 1:45–2:25 — The money shot: survive a region outage
-> "Now the part no single-region vector store can do. Mid-incident, I'll take
-> the primary region offline."
+Click chip: *"Is your memory OK? Diagnose it."*
+> "It checks the health of its own brain: one region down — and every one of
+> its ten thousand memories still readable AND writable, because the database
+> is set to SURVIVE REGION FAILURE. Recall still answers in milliseconds —
+> including memories whose home region is the one we just killed."
 
-On screen: click **⚡ SIMULATE REGION OUTAGE**. Primary region goes red/dashed.
-> "us-east-1 is gone. But look — the agent's memory is still here. X of Y
-> memories still served from the surviving regions, zero data loss."
+On screen: agent's self-diagnosis reply; send another incident question —
+recall still works; stats strip recall latency still ~150ms.
 
-Type another question; the agent still recalls and answers.
-> "The copilot never blinked. Its memory survived the crash — because it's
-> running on CockroachDB with SURVIVE REGION FAILURE."
+Click **◼ RESTORE REGION**.
+> "Region restored. Zero data loss. The flight recorder survived the crash."
 
-On screen: restore region; all green again.
+### 2:20–2:50 — Architecture + close
+> "Under the hood: one CockroachDB is both system of record and agent memory —
+> episodic incidents, learned runbooks, the agent's own thought stream, and
+> transactional incident state, all regional-by-row with distributed vector
+> indexes. Reasoning is Claude on Amazon Bedrock; embeddings are Titan; the
+> agent introspects its cluster through CockroachDB's Managed MCP Server."
 
-### 2:25–2:45 — Architecture + close
-> "Under the hood: CockroachDB for distributed vector memory and cluster
-> introspection over the Managed MCP Server, and AWS Bedrock — Claude for
-> reasoning, Titan for embeddings — on Lambda."
-
-On screen: architecture diagram (2–3 seconds), then repo + demo URL.
-> "BlackBox. Agents that remember — reliably, globally, at any scale.
-> Code and live demo linked below."
+On screen: architecture diagram 3s → repo + live demo URL.
+> "BlackBox. Agents that remember — reliably, globally, at any scale."
 
 ---
 
 ## Recording checklist
-- [ ] Run against the LIVE cluster if possible (pill shows "cluster live") so the
-      region counts are real; mock mode is the fallback.
-- [ ] Pre-seed the DB (`npm run db:seed`) so recall has history.
-- [ ] 1440p, hide bookmarks/notifications, increase editor/browser font.
-- [ ] Keep total under 3:00 (hard limit). Trim the intro first if over.
-- [ ] Upload unlisted to YouTube/Vimeo; put the link in Devpost + README.
+- [ ] Rig running + seeded; `CHAOS_CONTROL_PORT=7777` set so the kill is real
+- [ ] Bedrock configured for live reasoning (else BLACKBOX_MOCK_AGENT=1 — replies
+      are scripted but ALL database behavior is real; disclose in the video if used)
+- [ ] 1440p, big fonts, no notifications; stats strip visible at all times
+- [ ] Rehearse Act III timing: node drain takes ~12s — narrate over it
+- [ ] Hard limit 3:00 — trim Act I first if over
+- [ ] Upload unlisted (YouTube/Vimeo); link in Devpost + README

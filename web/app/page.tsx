@@ -15,6 +15,11 @@ interface Dist {
   region: string;
   rows: number;
 }
+interface Liveness {
+  region: string;
+  liveNodes: number;
+  totalNodes: number;
+}
 interface MemoryRow {
   id: string;
   kind: string;
@@ -36,6 +41,12 @@ interface IncidentInfo {
     nextSteps: string[];
   } | null;
 }
+interface Stats {
+  totalMemories: number;
+  recallMs: number | null;
+  regionsLive: number;
+  regionsTotal: number;
+}
 
 const SUGGESTION =
   "checkout-api p99 latency just jumped to 8s and connections are maxed out. what do i do?";
@@ -43,10 +54,9 @@ const SUGGESTION =
 const FOLLOW_UPS = [
   "What fixed this last time?",
   "We raised the pool size — mark it resolved.",
-  "What do you remember about checkout-api?",
+  "Is your memory OK? Diagnose it.",
 ];
 
-// Humanized trace labels; raw args stay visible but de-emphasized.
 const TOOL_LABELS: Record<string, string> = {
   recall_similar_incidents: "Searching past incidents",
   recall_runbooks: "Consulting runbooks",
@@ -54,8 +64,9 @@ const TOOL_LABELS: Record<string, string> = {
   list_services: "Listing services",
   open_incident: "Opening incident",
   update_incident_state: "Updating incident state",
-  resolve_incident: "Resolving incident",
+  resolve_incident: "Resolving incident + distilling runbook",
   inspect_cluster: "Inspecting cluster via MCP",
+  diagnose_memory: "Self-diagnosing memory layer",
 };
 
 const KIND_ICONS: Record<string, string> = {
@@ -73,12 +84,20 @@ export default function Dashboard() {
   const [busy, setBusy] = useState(false);
   const [incidentInfo, setIncidentInfo] = useState<IncidentInfo | null>(null);
   const [memories, setMemories] = useState<MemoryRow[]>([]);
+  const [stats, setStats] = useState<Stats | null>(null);
 
   const [regions, setRegions] = useState<RegionInfo[]>([]);
   const [dist, setDist] = useState<Dist[]>([]);
+  const [liveness, setLiveness] = useState<Liveness[]>([]);
   const [live, setLive] = useState(false);
   const [survival, setSurvival] = useState("region");
-  const [downedRegion, setDownedRegion] = useState<string | null>(null);
+
+  // Real chaos (local rig) vs simulated drill (no control port).
+  const [chaosReal, setChaosReal] = useState<{ available: boolean; target?: string }>({
+    available: false,
+  });
+  const [chaosBusy, setChaosBusy] = useState(false);
+  const [simDowned, setSimDowned] = useState<string | null>(null);
   const [survivorDist, setSurvivorDist] = useState<Dist[] | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -88,10 +107,11 @@ export default function Dashboard() {
       const d = await (await fetch("/api/regions")).json();
       setRegions(d.regions ?? []);
       setDist(d.distribution ?? []);
+      setLiveness(d.liveness ?? []);
       setLive(Boolean(d.live));
       setSurvival(d.survivalGoal ?? "region");
     } catch {
-      /* panel keeps last known state */
+      /* keep last state */
     }
   }, []);
 
@@ -100,7 +120,15 @@ export default function Dashboard() {
       const d = await (await fetch("/api/memory?limit=14")).json();
       setMemories(d.memories ?? []);
     } catch {
-      /* feed keeps last known state */
+      /* keep last state */
+    }
+  }, []);
+
+  const refreshStats = useCallback(async () => {
+    try {
+      setStats(await (await fetch("/api/stats")).json());
+    } catch {
+      /* keep last state */
     }
   }, []);
 
@@ -109,14 +137,19 @@ export default function Dashboard() {
       const res = await fetch(`/api/incident/${id}`);
       if (res.ok) setIncidentInfo(await res.json());
     } catch {
-      /* card keeps last known state */
+      /* keep last state */
     }
   }, []);
 
   useEffect(() => {
     refreshRegions();
     refreshMemories();
-  }, [refreshRegions, refreshMemories]);
+    refreshStats();
+    fetch("/api/chaos")
+      .then((r) => r.json())
+      .then(setChaosReal)
+      .catch(() => {});
+  }, [refreshRegions, refreshMemories, refreshStats]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -149,6 +182,7 @@ export default function Dashboard() {
       if (data.incidentId) refreshIncident(data.incidentId);
       refreshMemories();
       refreshRegions();
+      refreshStats();
     } catch (err) {
       const msg =
         err instanceof DOMException && err.name === "TimeoutError"
@@ -160,18 +194,50 @@ export default function Dashboard() {
     }
   }
 
+  /** A region is down if gossip says so (real), or it's the simulated target. */
+  function regionDown(region: string): boolean {
+    const l = liveness.find((x) => x.region === region);
+    if (l && l.totalNodes > 0 && l.liveNodes === 0) return true;
+    return simDowned === region;
+  }
+  const anyRealDown = liveness.some((l) => l.totalNodes > 0 && l.liveNodes === 0);
+  const downedRegion = liveness.find((l) => l.totalNodes > 0 && l.liveNodes === 0)?.region ?? simDowned;
+
   async function toggleChaos() {
-    if (downedRegion) {
-      setDownedRegion(null);
+    // REAL chaos: drain/restore actual nodes through the rig's control port.
+    if (chaosReal.available) {
+      setChaosBusy(true);
+      try {
+        const action = anyRealDown ? "restore" : "kill";
+        await fetch("/api/chaos", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ action }),
+          signal: AbortSignal.timeout(120_000),
+        });
+        // Gossip takes a few seconds to notice.
+        await new Promise((r) => setTimeout(r, 6_000));
+        await refreshRegions();
+        await refreshStats();
+      } catch {
+        /* panel will show truth on next refresh */
+      } finally {
+        setChaosBusy(false);
+      }
+      return;
+    }
+
+    // Simulated drill: exclusion query proves surviving replicas answer.
+    if (simDowned) {
+      setSimDowned(null);
       setSurvivorDist(null);
       refreshRegions();
       return;
     }
     const target = regions.find((r) => r.primary)?.region ?? regions[0]?.region;
     if (!target) return;
-    setDownedRegion(target);
+    setSimDowned(target);
     try {
-      // A REAL query answered without the downed region's rows.
       const d = await (await fetch(`/api/regions?exclude=${encodeURIComponent(target)}`)).json();
       setSurvivorDist(d.distribution ?? []);
     } catch {
@@ -179,11 +245,11 @@ export default function Dashboard() {
     }
   }
 
-  const shownDist = downedRegion && survivorDist ? survivorDist : dist;
-  const survivingRows = shownDist
-    .filter((d) => d.region !== downedRegion)
-    .reduce((s, d) => s + d.rows, 0);
+  const shownDist = simDowned && survivorDist ? survivorDist : dist;
   const totalRows = dist.reduce((s, d) => s + d.rows, 0);
+  const survivingRows = shownDist
+    .filter((d) => d.region !== simDowned)
+    .reduce((s, d) => s + d.rows, 0);
 
   return (
     <div className="shell">
@@ -203,9 +269,26 @@ export default function Dashboard() {
               : "Offline demo mode — scripted agent + in-memory store, no cloud required"
           }
         >
-          {live ? "● live: 3-region CockroachDB" : "○ offline demo — no cluster connected"}
+          {live ? "● live: multi-region CockroachDB" : "○ offline demo — no cluster connected"}
         </span>
       </header>
+
+      {stats && (
+        <div className="stats" aria-label="live memory statistics">
+          <span>
+            <b>{stats.totalMemories.toLocaleString()}</b> memories
+          </span>
+          <span>
+            semantic recall <b>{stats.recallMs != null ? `${stats.recallMs}ms` : "—"}</b>
+          </span>
+          <span>
+            regions <b>{stats.regionsLive}/{stats.regionsTotal}</b>
+          </span>
+          <span>
+            survives <b>{survival.toUpperCase()} FAILURE</b>
+          </span>
+        </div>
+      )}
 
       <div className="grid">
         {/* Left: agent chat */}
@@ -278,14 +361,16 @@ export default function Dashboard() {
             <div className="body">
               <div className="hint">
                 Every memory is <code>REGIONAL BY ROW</code>; the database is set to{" "}
-                <code>SURVIVE {survival.toUpperCase()} FAILURE</code>. Run a failure
-                drill — surviving counts come from a live query that excludes the
-                downed region.
+                <code>SURVIVE {survival.toUpperCase()} FAILURE</code>.{" "}
+                {chaosReal.available
+                  ? "The chaos button drains REAL nodes on the local rig — region status below is genuine gossip liveness."
+                  : "Run a failure drill — surviving counts come from a live query that excludes the downed region."}
               </div>
 
               {regions.map((r) => {
                 const rows = shownDist.find((d) => d.region === r.region)?.rows ?? 0;
-                const down = downedRegion === r.region;
+                const l = liveness.find((x) => x.region === r.region);
+                const down = regionDown(r.region);
                 return (
                   <div className={`region ${down ? "down" : ""}`} key={r.region}>
                     <span>
@@ -293,28 +378,59 @@ export default function Dashboard() {
                       {r.region}
                       {r.primary ? <span className="badge">PRIMARY</span> : null}
                     </span>
-                    <span className="rows">{down ? "unreachable" : `${rows} memories`}</span>
+                    <span className="rows">
+                      {down
+                        ? l
+                          ? `0/${l.totalNodes} nodes — DOWN`
+                          : "unreachable"
+                        : l
+                          ? `${rows} memories · ${l.liveNodes}/${l.totalNodes} nodes`
+                          : `${rows} memories`}
+                    </span>
                   </div>
                 );
               })}
 
-              <button className={`chaos ${downedRegion ? "armed" : ""}`} onClick={toggleChaos}>
-                {downedRegion ? "◼ RESTORE REGION" : "⚡ FAILURE DRILL: DOWN A REGION"}
+              <button
+                className={`chaos ${downedRegion ? "armed" : ""}`}
+                onClick={toggleChaos}
+                disabled={chaosBusy}
+              >
+                {chaosBusy
+                  ? "⏳ DRAINING NODES…"
+                  : downedRegion
+                    ? "◼ RESTORE REGION"
+                    : chaosReal.available
+                      ? `⚡ KILL ${chaosReal.target ?? "A REGION"} (REAL)`
+                      : "⚡ FAILURE DRILL: DOWN A REGION"}
               </button>
 
               <div className="status">
                 {downedRegion ? (
-                  <>
-                    <b style={{ color: "var(--red)" }}>{downedRegion} is offline.</b>
-                    <br />
-                    <span className="ok">✓ {survivingRows} of {totalRows} memories</span>{" "}
-                    still served from surviving regions — zero data loss, agent stays
-                    online.
-                  </>
+                  anyRealDown ? (
+                    <>
+                      <b style={{ color: "var(--red)" }}>{downedRegion} is genuinely offline</b>{" "}
+                      (nodes drained).
+                      <br />
+                      <span className="ok">✓ all {totalRows.toLocaleString()} memories</span>{" "}
+                      still readable and writable from surviving replicas — including
+                      those homed in the dead region. Zero data loss.
+                    </>
+                  ) : (
+                    <>
+                      <b style={{ color: "var(--red)" }}>{downedRegion} is offline (drill).</b>
+                      <br />
+                      <span className="ok">
+                        ✓ {survivingRows.toLocaleString()} of {totalRows.toLocaleString()} memories
+                      </span>{" "}
+                      still served from surviving regions — zero data loss, agent stays
+                      online.
+                    </>
+                  )
                 ) : (
                   <>
-                    All regions healthy · {totalRows} memories replicated across{" "}
-                    {regions.length} regions.
+                    All regions healthy · {totalRows.toLocaleString()} memories replicated
+                    across {regions.length} regions.
                   </>
                 )}
               </div>

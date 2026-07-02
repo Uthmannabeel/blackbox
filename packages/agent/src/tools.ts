@@ -1,4 +1,4 @@
-import type { IMemoryService } from "@blackbox/memory";
+import { clusterHealth, isMock, type IMemoryService } from "@blackbox/memory";
 import { mcpConfigured, mcpRunSql } from "./mcp.js";
 
 /** A tool the agent can call: a Bedrock toolSpec + a handler. */
@@ -197,12 +197,74 @@ export function buildTools(ctx: ToolContext): AgentTool[] {
       },
       handler: async (input) => {
         if (!ctx.currentIncidentId) return "No current incident to resolve.";
-        await ctx.memory.resolveIncident(ctx.currentIncidentId, input.resolution);
         const id = ctx.currentIncidentId;
-        return `Incident ${id} resolved and committed to episodic memory.`;
+        const resolution = String(input.resolution);
+        await ctx.memory.resolveIncident(id, resolution);
+
+        // THE LEARNING LOOP: every resolution becomes procedural memory. The
+        // next similar incident recalls not just "we saw this" (episodic) but
+        // "here is the fix we learned" (runbook) — memory that compounds.
+        const incident = await ctx.memory.getIncident(id);
+        const title = incident?.title ?? "untitled incident";
+        await ctx.memory.upsertRunbook({
+          title: `Learned runbook: ${title}`,
+          body: `Distilled from incident ${id} (${new Date().toISOString().slice(0, 10)}):\n${resolution}`,
+          tags: ["learned", "auto-postmortem"],
+        });
+        await ctx.memory.remember({
+          sessionId: ctx.sessionId,
+          incidentId: id,
+          kind: "reflection",
+          content: `Resolved "${title}". Learned: ${resolution}`,
+          importance: 0.9,
+        });
+
+        return (
+          `Incident ${id} resolved and committed to episodic memory. ` +
+          `A learned runbook was distilled from the resolution — future similar incidents will recall this fix.`
+        );
       },
     },
   ];
+
+  // Self-diagnosis: the agent's memory IS a CockroachDB cluster; let it
+  // observe the health of its own brain. Not available in full-mock mode
+  // (there is no cluster to observe).
+  if (!isMock()) {
+    tools.push({
+      spec: {
+        name: "diagnose_memory",
+        description:
+          "Inspect the health of your OWN memory layer (the CockroachDB cluster): per-region node liveness, survival goal, and total memories. Use when asked about your memory, or when a region may be down.",
+        inputSchema: {
+          json: { type: "object", properties: {} },
+        },
+      },
+      handler: async () => {
+        const h = await clusterHealth();
+        const lines = h.regions.map((r) => {
+          const status =
+            r.liveNodes === r.totalNodes
+              ? "healthy"
+              : r.liveNodes === 0
+                ? "REGION DOWN"
+                : "degraded";
+          return `  ${r.region}: ${r.liveNodes}/${r.totalNodes} nodes live — ${status}`;
+        });
+        const down = h.regions.filter((r) => r.liveNodes === 0).length;
+        const verdict =
+          down === 0
+            ? "All regions healthy."
+            : down === 1
+              ? `One region is down, but survival goal '${h.survivalGoal}' means my memory remains fully readable and writable from surviving replicas.`
+              : "Multiple regions down — memory availability may be at risk.";
+        return (
+          `Memory-layer health (gateway: ${h.gatewayRegion}, survival goal: ${h.survivalGoal}, ` +
+          `${h.totalMemories} memories):\n${lines.join("\n")}\n${verdict}`
+        );
+      },
+    });
+  }
 
   // Only expose cluster introspection if the Managed MCP Server is configured.
   if (mcpConfigured()) {

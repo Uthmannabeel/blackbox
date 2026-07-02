@@ -8,6 +8,8 @@ export { MockMemoryService } from "./mockMemory.js";
 export { getPool, closePool } from "./db.js";
 export { embed, EMBED_DIM } from "./embeddings.js";
 export { isMock, isMockEmbeddings, loadEnv } from "./env.js";
+export { regionLiveness, clusterHealth } from "./clusterHealth.js";
+export type { RegionHealth, ClusterHealth } from "./clusterHealth.js";
 export * from "./types.js";
 
 /**

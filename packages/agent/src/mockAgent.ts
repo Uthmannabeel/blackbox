@@ -1,4 +1,10 @@
-import { createMemoryService, type IMemoryService, type Severity } from "@blackbox/memory";
+import {
+  clusterHealth,
+  createMemoryService,
+  isMock,
+  type IMemoryService,
+  type Severity,
+} from "@blackbox/memory";
 import type { Agent, AgentEvent, AgentResult } from "./agent.js";
 
 /**
@@ -30,6 +36,87 @@ export class MockAgent implements Agent {
       content: userMessage,
       importance: 0.6,
     });
+
+    // Self-diagnosis path: questions about the agent's own memory health.
+    if (
+      !isMock() &&
+      /\b(your memory|memory (ok|okay|health|layer)|region (down|outage|offline)|are you (ok|okay|healthy)|diagnose)\b/i.test(
+        userMessage,
+      )
+    ) {
+      events.push({ type: "tool_call", tool: "diagnose_memory", input: {} });
+      try {
+        const h = await clusterHealth();
+        const lines = h.regions.map((r) => {
+          const status =
+            r.liveNodes === r.totalNodes ? "healthy" : r.liveNodes === 0 ? "REGION DOWN" : "degraded";
+          return `• ${r.region}: ${r.liveNodes}/${r.totalNodes} nodes live — ${status}`;
+        });
+        const down = h.regions.filter((r) => r.liveNodes === 0);
+        const verdict =
+          down.length === 0
+            ? "All regions healthy — my memory is fully replicated."
+            : `⚠️ ${down.map((d) => d.region).join(", ")} is DOWN — but my survival goal is '${h.survivalGoal}', so all ${h.totalMemories} memories remain readable and writable from surviving replicas. I never lost a thing.`;
+        const reply = `**Memory self-diagnosis** (gateway: ${h.gatewayRegion}):\n${lines.join("\n")}\n\n${verdict}`;
+        events.push({ type: "tool_result", tool: "diagnose_memory", result: "health snapshot" });
+        await this.memory.remember({
+          sessionId: this.sessionId,
+          incidentId: this._incidentId,
+          kind: "observation",
+          content: `diagnose_memory -> ${verdict}`,
+          importance: 0.8,
+        });
+        return { reply, events };
+      } catch (err) {
+        return {
+          reply: `⚠️ Could not reach my memory layer for diagnosis: ${(err as Error).message}`,
+          events,
+        };
+      }
+    }
+
+    // Resolution path: the operator reports the fix — close the incident and
+    // run the LEARNING LOOP (same behavior as the real agent's tool handler).
+    if (
+      this._incidentId &&
+      /\b(resolved?|fixed|mark (it|this).*(resolved|fixed)|mitigated)\b/i.test(userMessage)
+    ) {
+      const id = this._incidentId;
+      const resolution = userMessage;
+      events.push({ type: "tool_call", tool: "resolve_incident", input: { resolution } });
+      await this.memory.resolveIncident(id, resolution);
+      const incident = await this.memory.getIncident(id);
+      const title = incident?.title ?? "untitled incident";
+      await this.memory.upsertRunbook({
+        title: `Learned runbook: ${title}`,
+        body: `Distilled from incident ${id}:\n${resolution}`,
+        tags: ["learned", "auto-postmortem"],
+      });
+      await this.memory.remember({
+        sessionId: this.sessionId,
+        incidentId: id,
+        kind: "reflection",
+        content: `Resolved "${title}". Learned: ${resolution}`,
+        importance: 0.9,
+      });
+      events.push({
+        type: "tool_result",
+        tool: "resolve_incident",
+        result: `resolved ${id}; learned runbook distilled`,
+      });
+      this._incidentId = null;
+      const reply =
+        `✅ **Incident resolved** and committed to episodic memory.\n\n` +
+        `📚 **Learning loop:** I distilled the fix into a new runbook — *"Learned runbook: ${title}"*. ` +
+        `The next time something similar happens, I'll recall exactly what fixed it this time.`;
+      await this.memory.remember({
+        sessionId: this.sessionId,
+        kind: "agent_msg",
+        content: reply,
+        importance: 0.6,
+      });
+      return { reply, events };
+    }
 
     // 1. Recall similar past incidents.
     events.push({ type: "tool_call", tool: "recall_similar_incidents", input: { situation: userMessage } });

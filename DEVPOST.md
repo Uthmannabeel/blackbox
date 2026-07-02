@@ -20,15 +20,20 @@ like an aircraft's flight recorder for your infrastructure.
 
 ## What it does
 BlackBox triages, diagnoses, and helps mitigate production incidents:
-- **Recalls institutional memory** — "have we seen this before?" — via semantic
-  search over every past incident and runbook.
+- **Recalls institutional memory at scale** — "have we seen this before?" —
+  semantic search over a 10,000-incident corpus via CockroachDB's distributed
+  vector index (~140ms top-5).
+- **Learns** — every resolution is automatically distilled into a new runbook
+  (procedural memory). The next similar incident recalls the fix the agent
+  just learned. Memory that compounds, not a chat log.
 - **Reasons and acts** through a tool-using loop: recall → hypothesize →
   inspect the live cluster → open an incident → track state → resolve.
-- **Remembers everything durably** — each observation, action, and resolution is
-  written back to memory, so the next incident starts smarter.
-- **Survives region failure** — its memory stays available and strongly
-  consistent even when an entire cloud region goes dark, which we demonstrate
-  live with a "chaos" control.
+- **Survives region failure — for real.** Our demo kills every node in the
+  database's primary region on camera: all memories stay readable AND
+  writable from surviving replicas, including rows homed in the dead region.
+- **Diagnoses its own brain** — the agent's memory *is* a CockroachDB cluster,
+  and a `diagnose_memory` tool lets it observe per-region node liveness and
+  explain its own degraded-but-survivable state mid-outage.
 
 ## How we built it
 - **Memory layer — CockroachDB.** Four memory surfaces (episodic incidents,
@@ -69,12 +74,19 @@ BlackBox is designed around what only CockroachDB does well:
   state — no stitching a vector DB to a state store to a cache.
 
 ## Challenges we ran into
-- Designing recall that stays local and survivable — solved with region-prefixed
-  vector indexes so the ANN tree lives with its region's data.
+- Making "survivability" demonstrable without faking it: we built a local
+  9-node, 3-region chaos rig (`cockroach demo --demo-locality`) with a driver
+  that lets the app kill real nodes — and validated reads AND writes against a
+  dead primary region.
+- We found (and worked around) a real v25.4.0 bug: post-hoc `CREATE INDEX` on
+  REGIONAL BY ROW tables with vector indexes hits an internal error XX000 —
+  plus other gotchas, all written up in FEEDBACK.md for the CockroachDB team.
+- Single-gateway writes silently pin every row to one region
+  (`gateway_region()` default) — our seeders and docs handle row-home
+  distribution explicitly.
 - Keeping the agent stateless for horizontal scale while preserving multi-turn
   context — all durable state lives in CockroachDB; only the in-flight
   conversation is held per instance.
-- Making "survivability" demonstrable in under three minutes without faking it.
 
 ## Accomplishments we're proud of
 - A genuine reason/recall/act agent whose memory model maps to the three classic

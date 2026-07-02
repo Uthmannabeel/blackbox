@@ -32,9 +32,16 @@ async function main() {
 
   const rl = createInterface({ input: stdin, output: stdout });
 
-  while (true) {
-    const line = (await rl.question("you › ")).trim();
-    if (!line) continue;
+  // Async iteration handles both interactive TTYs and piped stdin: lines that
+  // arrive while a turn is processing are buffered, and EOF ends the loop
+  // cleanly (readline.question() throws ERR_USE_AFTER_CLOSE on piped EOF).
+  process.stdout.write("you › ");
+  for await (const raw of rl) {
+    const line = raw.trim();
+    if (!line) {
+      process.stdout.write("you › ");
+      continue;
+    }
     if (line === "exit" || line === "quit") break;
 
     const { reply, events } = await agent.chat(line);
@@ -47,6 +54,7 @@ async function main() {
     if (agent.currentIncidentId) {
       console.log(`   [active incident: ${agent.currentIncidentId}]\n`);
     }
+    process.stdout.write("you › ");
   }
 
   rl.close();
