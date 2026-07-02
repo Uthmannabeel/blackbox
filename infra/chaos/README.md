@@ -25,10 +25,16 @@ control port (7777) so node-kills can be scripted:
 
 ```powershell
 node infra\chaos\driver.mjs "infra\chaos\bin\cockroach-v25.4.0.windows-6.2-amd64\cockroach.exe" `
-  demo --insecure --global --nodes 9 --no-example-database --sql-port 26257 --http-port 8080 --set errexit=false
+  demo --insecure --nodes 9 `
+  --demo-locality="region=us-east1,az=b:region=us-east1,az=c:region=us-east1,az=d:region=us-west1,az=a:region=us-west1,az=b:region=us-west1,az=c:region=europe-west1,az=b:region=europe-west1,az=c:region=europe-west1,az=d" `
+  --no-example-database --sql-port 26257 --http-port 8080 --set errexit=false
 ```
 
 Notes we learned the hard way:
+- **Do NOT use `--global`**: it simulates nice inter-region latency, but
+  `\demo shutdown` is unsupported there ("shutting down nodes is not supported
+  in --global configurations"). Explicit `--demo-locality` keeps the 3-region
+  topology AND allows node kills.
 - `--insecure` is required on machines with corporate TLS interception (the
   demo's own inter-node certs fail verification otherwise).
 - `--set errexit=false` keeps a malformed control command from killing the
