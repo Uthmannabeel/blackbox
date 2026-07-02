@@ -7,6 +7,15 @@ and BlackBox keeps recalling.
 
 No cloud accounts needed.
 
+**Fast path — one command** (after step 1 below, ~8 min mostly seeding):
+
+```powershell
+powershell -ExecutionPolicy Bypass -File infra\chaos\rig-up.ps1
+```
+
+Cluster + schema + 10k seed + validation + web app on http://localhost:3000
+with the REAL chaos button armed. Steps below explain what it does.
+
 ## 1. Get the binary
 
 `infra/chaos/bin/` (gitignored). v25.2+ required for vector indexes; we
