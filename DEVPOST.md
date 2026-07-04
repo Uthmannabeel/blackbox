@@ -106,5 +106,5 @@ the properties that make an agent trustworthy.
 
 ## Links
 - Repo: https://github.com/Uthmannabeel/blackbox
-- Demo: <vercel url>
+- Demo: https://blackbox-web-eight.vercel.app
 - Video: <youtube/vimeo url>

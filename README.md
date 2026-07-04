@@ -9,6 +9,9 @@ consistent, and region-pinned** on top of CockroachDB — so when a whole cloud
 region goes dark mid-incident, the agent keeps remembering and keeps reasoning.
 
 > Built for the **CockroachDB × AWS "Build with Agentic Memory" Hackathon.**
+>
+> **🔴 Live demo: https://blackbox-web-eight.vercel.app** *(offline demo mode —
+> full UX with scripted agent; flips to live Bedrock + CockroachDB Cloud for judging)*
 
 ---
 
