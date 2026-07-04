@@ -61,7 +61,7 @@ export class BlackBoxAgent implements Agent {
 
   constructor(opts: { sessionId: string; incidentId?: string | null; memory?: IMemoryService }) {
     this.client = new BedrockRuntimeClient({ region: process.env.AWS_REGION ?? "us-east-1" });
-    this.modelId = process.env.BEDROCK_MODEL_ID ?? "us.anthropic.claude-sonnet-4-6-v1:0";
+    this.modelId = process.env.BEDROCK_MODEL_ID ?? "anthropic.claude-sonnet-4-6";
     this.memory = opts.memory ?? createMemoryService();
     this.ctx = {
       memory: this.memory,
