@@ -71,7 +71,8 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: "no safe target region" }, { status: 409 });
     }
 
-    const nodes = (await regionLiveness()).find((r) => r.region === target)?.nodeIds ?? [];
+    const nodes =
+      (await regionLiveness()).regions.find((r) => r.region === target)?.nodeIds ?? [];
     const verb = action === "kill" ? "shutdown" : "restart";
     const targets = nodes.filter((n) => (action === "kill" ? n.live : !n.live));
 

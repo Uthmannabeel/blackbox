@@ -46,7 +46,10 @@ async function main() {
   const admin = new Pool({ connectionString: normalize(rawUrl!, "defaultdb"), max: 2 });
   try {
     const { rows: regionRows } = await admin.query(`SHOW REGIONS FROM CLUSTER`);
-    const regions: string[] = regionRows.map((r: any) => r.region);
+    let regions: string[] = regionRows.map((r: any) => r.region);
+    // Prefer a us-east region as primary (closest to Bedrock + our gateway).
+    const preferred = regions.find((r) => r.includes("us-east"));
+    if (preferred) regions = [preferred, ...regions.filter((r) => r !== preferred)];
     if (regions.length < 3) {
       throw new Error(
         `Cluster reports ${regions.length} region(s); SURVIVE REGION FAILURE needs >= 3. ` +

@@ -76,7 +76,8 @@ export async function GET(req: NextRequest) {
     // regions, not client-side toggles. Best-effort (gossip view can lag).
     let liveness: { region: string; liveNodes: number; totalNodes: number }[] = [];
     try {
-      liveness = (await regionLiveness()).map((r) => ({
+      const { regions: rh } = await regionLiveness();
+      liveness = rh.map((r) => ({
         region: r.region,
         liveNodes: r.liveNodes,
         totalNodes: r.totalNodes,
