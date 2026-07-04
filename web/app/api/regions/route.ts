@@ -96,6 +96,14 @@ export async function GET(req: NextRequest) {
     // No live cluster yet — return the intended demo topology so the UI renders.
     // Log the detail server-side; never leak connection/error internals to the client.
     console.error("[/api/regions] falling back to demo topology:", err);
+    // Temporary diagnostic: ?debug=1 surfaces the error class/message (no secrets).
+    if (req.nextUrl.searchParams.get("debug") === "1") {
+      const e = err as { code?: string; message?: string; name?: string };
+      return NextResponse.json(
+        { live: false, debug: { name: e.name, code: e.code, message: e.message } },
+        { status: 200 },
+      );
+    }
     return NextResponse.json({
       live: false,
       regions: DEMO_REGIONS,
