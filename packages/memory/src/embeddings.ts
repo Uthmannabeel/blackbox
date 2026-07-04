@@ -22,6 +22,16 @@ function getClient(): BedrockRuntimeClient {
   return client;
 }
 
+function isThrottle(err: unknown): boolean {
+  const e = err as { name?: string; message?: string };
+  return (
+    e?.name === "ThrottlingException" ||
+    /too many requests|throttl|rate exceeded/i.test(e?.message ?? "")
+  );
+}
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
 export async function embed(text: string): Promise<number[]> {
   if (isMockEmbeddings()) return mockEmbed(text);
 
@@ -33,25 +43,36 @@ export async function embed(text: string): Promise<number[]> {
     normalize: true, // unit vectors -> cosine distance is well-behaved
   });
 
-  const res = await getClient().send(
-    new InvokeModelCommand({
-      modelId,
-      contentType: "application/json",
-      accept: "application/json",
-      body,
-    }),
-  );
-
-  const payload = JSON.parse(new TextDecoder().decode(res.body)) as {
-    embedding: number[];
-  };
-
-  if (!payload.embedding || payload.embedding.length !== EMBED_DIM) {
-    throw new Error(
-      `Bedrock returned ${payload.embedding?.length ?? 0} dims, expected ${EMBED_DIM}`,
-    );
+  // Fresh AWS accounts have low Titan quotas; back off through throttles
+  // rather than failing (protects both bulk seeding and live agent turns).
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 7; attempt++) {
+    try {
+      const res = await getClient().send(
+        new InvokeModelCommand({
+          modelId,
+          contentType: "application/json",
+          accept: "application/json",
+          body,
+        }),
+      );
+      const payload = JSON.parse(new TextDecoder().decode(res.body)) as {
+        embedding: number[];
+      };
+      if (!payload.embedding || payload.embedding.length !== EMBED_DIM) {
+        throw new Error(
+          `Bedrock returned ${payload.embedding?.length ?? 0} dims, expected ${EMBED_DIM}`,
+        );
+      }
+      return payload.embedding;
+    } catch (err) {
+      if (!isThrottle(err)) throw err;
+      lastErr = err;
+      // 1s, 2s, 4s, ... + jitter (deterministic-ish; jitter from attempt)
+      await sleep(1000 * 2 ** attempt + 137 * attempt);
+    }
   }
-  return payload.embedding;
+  throw lastErr;
 }
 
 /**

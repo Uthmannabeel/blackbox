@@ -20,7 +20,8 @@ loadEnv();
  */
 
 const COUNT = Math.max(1, Number(process.argv[2] ?? process.env.SEED_COUNT ?? 10_000));
-const CONCURRENCY = 8;
+// Tunable: low-quota Bedrock accounts should seed gently (SEED_CONCURRENCY=2).
+const CONCURRENCY = Math.max(1, Number(process.env.SEED_CONCURRENCY ?? 8));
 
 // Failure-mode templates. {svc}/{dep}/{n}/{pct} are filled per incident.
 const MODES = [
