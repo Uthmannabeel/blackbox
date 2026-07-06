@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { ThemeToggle } from "../components/ThemeToggle";
 
 type Turn =
   | { role: "user"; text: string }
@@ -185,10 +186,13 @@ export default function Console() {
           </Link>
           <span className="sub">incident console</span>
         </div>
-        <span className={`pill${live ? "" : " offline"}`} title={live ? "Connected to a multi-region CockroachDB Cloud cluster" : "Offline demo mode"}>
-          <span className="s" />
-          {live ? "live · multi-region CockroachDB" : "offline demo"}
-        </span>
+        <div className="cright">
+          <span className={`pill${live ? "" : " offline"}`} title={live ? "Connected to a multi-region CockroachDB Cloud cluster" : "Offline demo mode"}>
+            <span className="s" />
+            {live ? "live · multi-region CockroachDB" : "offline demo"}
+          </span>
+          <ThemeToggle />
+        </div>
       </div>
 
       {stats && (
