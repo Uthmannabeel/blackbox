@@ -1,498 +1,314 @@
-"use client";
+import Link from "next/link";
+import { RecorderStrip } from "./components/RecorderStrip";
+import { LiveStat } from "./components/LiveStat";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+const REPO = "https://github.com/Uthmannabeel/blackbox";
 
-type Turn =
-  | { role: "user"; text: string }
-  | { role: "agent"; text: string }
-  | { role: "trace"; tool: string; detail: string };
-
-interface RegionInfo {
-  region: string;
-  primary?: boolean;
-}
-interface Dist {
-  region: string;
-  rows: number;
-}
-interface Liveness {
-  region: string;
-  liveNodes: number;
-  totalNodes: number;
-}
-interface MemoryRow {
-  id: string;
-  kind: string;
-  content: string;
-  region: string;
-  createdAt: string;
-}
-interface IncidentInfo {
-  incident: {
-    id: string;
-    title: string;
-    severity: string;
-    status: string;
-    region: string;
-  };
-  state: {
-    phase: string;
-    hypotheses: string[];
-    nextSteps: string[];
-  } | null;
-}
-interface Stats {
-  totalMemories: number;
-  recallMs: number | null;
-  regionsLive: number;
-  regionsTotal: number;
-}
-
-const SUGGESTION =
-  "checkout-api p99 latency just jumped to 8s and connections are maxed out. what do i do?";
-
-const FOLLOW_UPS = [
-  "What fixed this last time?",
-  "We raised the pool size — mark it resolved.",
-  "Is your memory OK? Diagnose it.",
-];
-
-const TOOL_LABELS: Record<string, string> = {
-  recall_similar_incidents: "Searching past incidents",
-  recall_runbooks: "Consulting runbooks",
-  recall_memories: "Recalling own memory",
-  list_services: "Listing services",
-  open_incident: "Opening incident",
-  update_incident_state: "Updating incident state",
-  resolve_incident: "Resolving incident + distilling runbook",
-  inspect_cluster: "Inspecting cluster via MCP",
-  diagnose_memory: "Self-diagnosing memory layer",
-};
-
-const KIND_ICONS: Record<string, string> = {
-  user_msg: "🗣",
-  agent_msg: "🤖",
-  observation: "👁",
-  action: "⚡",
-  reflection: "💭",
-};
-
-export default function Dashboard() {
-  const [sessionId] = useState(() => crypto.randomUUID());
-  const [turns, setTurns] = useState<Turn[]>([]);
-  const [input, setInput] = useState("");
-  const [busy, setBusy] = useState(false);
-  const [incidentInfo, setIncidentInfo] = useState<IncidentInfo | null>(null);
-  const [memories, setMemories] = useState<MemoryRow[]>([]);
-  const [stats, setStats] = useState<Stats | null>(null);
-
-  const [regions, setRegions] = useState<RegionInfo[]>([]);
-  const [dist, setDist] = useState<Dist[]>([]);
-  const [liveness, setLiveness] = useState<Liveness[]>([]);
-  const [live, setLive] = useState(false);
-  const [survival, setSurvival] = useState("region");
-
-  // Real chaos (local rig) vs simulated drill (no control port).
-  const [chaosReal, setChaosReal] = useState<{ available: boolean; target?: string }>({
-    available: false,
-  });
-  const [chaosBusy, setChaosBusy] = useState(false);
-  const [simDowned, setSimDowned] = useState<string | null>(null);
-  const [survivorDist, setSurvivorDist] = useState<Dist[] | null>(null);
-
-  const scrollRef = useRef<HTMLDivElement>(null);
-
-  const refreshRegions = useCallback(async () => {
-    try {
-      const d = await (await fetch("/api/regions")).json();
-      setRegions(d.regions ?? []);
-      setDist(d.distribution ?? []);
-      setLiveness(d.liveness ?? []);
-      setLive(Boolean(d.live));
-      setSurvival(d.survivalGoal ?? "region");
-    } catch {
-      /* keep last state */
-    }
-  }, []);
-
-  const refreshMemories = useCallback(async () => {
-    try {
-      const d = await (await fetch("/api/memory?limit=14")).json();
-      setMemories(d.memories ?? []);
-    } catch {
-      /* keep last state */
-    }
-  }, []);
-
-  const refreshStats = useCallback(async () => {
-    try {
-      setStats(await (await fetch("/api/stats")).json());
-    } catch {
-      /* keep last state */
-    }
-  }, []);
-
-  const refreshIncident = useCallback(async (id: string) => {
-    try {
-      const res = await fetch(`/api/incident/${id}`);
-      if (res.ok) setIncidentInfo(await res.json());
-    } catch {
-      /* keep last state */
-    }
-  }, []);
-
-  useEffect(() => {
-    refreshRegions();
-    refreshMemories();
-    refreshStats();
-    fetch("/api/chaos")
-      .then((r) => r.json())
-      .then(setChaosReal)
-      .catch(() => {});
-  }, [refreshRegions, refreshMemories, refreshStats]);
-
-  useEffect(() => {
-    scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
-  }, [turns]);
-
-  async function send(text: string) {
-    if (!text.trim() || busy) return;
-    setTurns((t) => [...t, { role: "user", text }]);
-    setInput("");
-    setBusy(true);
-    try {
-      const res = await fetch("/api/chat", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId, message: text }),
-        signal: AbortSignal.timeout(90_000),
-      });
-      const data = await res.json();
-      if (!res.ok) throw new Error(data.error ?? "request failed");
-
-      const traceTurns: Turn[] = (data.events ?? [])
-        .filter((e: any) => e.type === "tool_call")
-        .map((e: any) => ({
-          role: "trace" as const,
-          tool: e.tool,
-          detail: JSON.stringify(e.input ?? {}),
-        }));
-      setTurns((t) => [...t, ...traceTurns, { role: "agent", text: data.reply }]);
-
-      if (data.incidentId) refreshIncident(data.incidentId);
-      refreshMemories();
-      refreshRegions();
-      refreshStats();
-    } catch (err) {
-      const msg =
-        err instanceof DOMException && err.name === "TimeoutError"
-          ? "The agent took too long to respond (90s). Please try again."
-          : (err as Error).message;
-      setTurns((t) => [...t, { role: "agent", text: `⚠️ ${msg}` }]);
-    } finally {
-      setBusy(false);
-    }
-  }
-
-  /** A region is down if gossip says so (real), or it's the simulated target. */
-  function regionDown(region: string): boolean {
-    const l = liveness.find((x) => x.region === region);
-    if (l && l.totalNodes > 0 && l.liveNodes === 0) return true;
-    return simDowned === region;
-  }
-  const anyRealDown = liveness.some((l) => l.totalNodes > 0 && l.liveNodes === 0);
-  const downedRegion = liveness.find((l) => l.totalNodes > 0 && l.liveNodes === 0)?.region ?? simDowned;
-
-  async function toggleChaos() {
-    // REAL chaos: drain/restore actual nodes through the rig's control port.
-    if (chaosReal.available) {
-      setChaosBusy(true);
-      try {
-        const action = anyRealDown ? "restore" : "kill";
-        await fetch("/api/chaos", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ action }),
-          signal: AbortSignal.timeout(120_000),
-        });
-        // Gossip takes a few seconds to notice.
-        await new Promise((r) => setTimeout(r, 6_000));
-        await refreshRegions();
-        await refreshStats();
-      } catch {
-        /* panel will show truth on next refresh */
-      } finally {
-        setChaosBusy(false);
-      }
-      return;
-    }
-
-    // Simulated drill: exclusion query proves surviving replicas answer.
-    if (simDowned) {
-      setSimDowned(null);
-      setSurvivorDist(null);
-      refreshRegions();
-      return;
-    }
-    const target = regions.find((r) => r.primary)?.region ?? regions[0]?.region;
-    if (!target) return;
-    setSimDowned(target);
-    try {
-      const d = await (await fetch(`/api/regions?exclude=${encodeURIComponent(target)}`)).json();
-      setSurvivorDist(d.distribution ?? []);
-    } catch {
-      setSurvivorDist(dist.filter((x) => x.region !== target));
-    }
-  }
-
-  const shownDist = simDowned && survivorDist ? survivorDist : dist;
-  const totalRows = dist.reduce((s, d) => s + d.rows, 0);
-  const survivingRows = shownDist
-    .filter((d) => d.region !== simDowned)
-    .reduce((s, d) => s + d.rows, 0);
-
+export default function Landing() {
   return (
-    <div className="shell">
-      <header className="top">
-        <div className="brand">
-          <span className="logo">🛩️</span>
-          <div>
-            <h1>BlackBox</h1>
-            <div className="tag">incident copilot · memory that survives the crash</div>
+    <>
+      <nav className="nav">
+        <div className="wrap nav-inner">
+          <div className="brand">
+            <span className="mark">
+              Black<b>Box</b>
+            </span>
+            <span className="sub">incident memory</span>
+          </div>
+          <div className="nav-links">
+            <a href="#how" className="hide-sm">
+              How it works
+            </a>
+            <a href="#why" className="hide-sm">
+              Why CockroachDB
+            </a>
+            <a href="#proof" className="hide-sm">
+              Survivability
+            </a>
+            <a href={REPO}>GitHub</a>
+            <Link href="/console" className="btn btn-primary btn-sm">
+              Open console
+            </Link>
           </div>
         </div>
-        <span
-          className="pill"
-          title={
-            live
-              ? "Connected to a live multi-region CockroachDB cluster"
-              : "Offline demo mode — scripted agent + in-memory store, no cloud required"
-          }
-        >
-          {live ? "● live: multi-region CockroachDB" : "○ offline demo — no cluster connected"}
-        </span>
+      </nav>
+
+      {/* hero */}
+      <header className="hero">
+        <div className="wrap">
+          <div className="eyebrow">CockroachDB &times; AWS — agentic memory</div>
+          <h1>Incident memory that survives the outage it&rsquo;s diagnosing.</h1>
+          <p className="lede">
+            BlackBox is an SRE incident-response agent. Every past incident, runbook, and decision
+            it records lives in CockroachDB — globally distributed, strongly consistent, and pinned
+            to its home region. When a region fails mid-incident, the agent keeps recalling and keeps
+            reasoning. Like a flight recorder, its memory is built to outlast the crash.
+          </p>
+          <div className="hero-cta">
+            <Link href="/console" className="btn btn-primary">
+              Open the live console
+            </Link>
+            <a href="#proof" className="btn btn-ghost">
+              See it survive a region failure
+            </a>
+          </div>
+          <LiveStat />
+          <div style={{ marginTop: 40 }}>
+            <RecorderStrip />
+          </div>
+        </div>
       </header>
 
-      {stats && (
-        <div className="stats" aria-label="live memory statistics">
-          <span>
-            <b>{stats.totalMemories.toLocaleString()}</b> memories
-          </span>
-          <span>
-            semantic recall <b>{stats.recallMs != null ? `${stats.recallMs}ms` : "—"}</b>
-          </span>
-          <span>
-            regions <b>{stats.regionsLive}/{stats.regionsTotal}</b>
-          </span>
-          <span>
-            survives <b>{survival.toUpperCase()} FAILURE</b>
-          </span>
-        </div>
-      )}
-
-      <div className="grid">
-        {/* Left: agent chat */}
-        <div className="panel chat">
-          <h2>Agent · reason ↔ recall ↔ act</h2>
-          <div className="messages" ref={scrollRef} aria-live="polite">
-            {turns.length === 0 && (
-              <div className="hint">
-                Describe an incident. The agent recalls similar past incidents and
-                runbooks from CockroachDB, reasons, and records everything to durable
-                memory.
-                <br />
-                <br />
-                Try:{" "}
-                <a
-                  href="#"
-                  style={{ color: "var(--amber)" }}
-                  onClick={(e) => {
-                    e.preventDefault();
-                    send(SUGGESTION);
-                  }}
-                >
-                  “{SUGGESTION}”
-                </a>
-              </div>
-            )}
-            {turns.map((t, i) =>
-              t.role === "trace" ? (
-                <div className="trace" key={i}>
-                  🔧 <b>{TOOL_LABELS[t.tool] ?? t.tool}</b>
-                  <span className="args"> {t.detail}</span>
-                </div>
-              ) : (
-                <div className={`msg ${t.role}`} key={i}>
-                  <div className="who">{t.role === "user" ? "operator" : "blackbox"}</div>
-                  {t.text}
-                </div>
-              ),
-            )}
-            {busy && <div className="trace">thinking…</div>}
-            {turns.length > 0 && !busy && (
-              <div className="chips">
-                {FOLLOW_UPS.map((f) => (
-                  <button className="chip" key={f} onClick={() => send(f)}>
-                    {f}
-                  </button>
-                ))}
-              </div>
-            )}
+      {/* built on */}
+      <section style={{ paddingTop: 40, paddingBottom: 40 }}>
+        <div className="wrap">
+          <div className="eyebrow" style={{ marginBottom: 16 }}>
+            Built on
           </div>
-          <div className="composer">
-            <input
-              value={input}
-              placeholder="Describe what's happening…"
-              aria-label="Describe the incident"
-              onChange={(e) => setInput(e.target.value)}
-              onKeyDown={(e) => e.key === "Enter" && send(input)}
-              disabled={busy}
-            />
-            <button onClick={() => send(input)} disabled={busy}>
-              Send
-            </button>
+          <div className="builton">
+            <span className="chip">CockroachDB Cloud</span>
+            <span className="chip">Distributed Vector Indexing (C-SPANN)</span>
+            <span className="chip">Managed MCP Server</span>
+            <span className="chip">AWS Bedrock — Claude</span>
+            <span className="chip">Titan Text Embeddings v2</span>
+            <span className="chip">Next.js · TypeScript</span>
           </div>
         </div>
+      </section>
 
-        {/* Right: survivability + incident + memory stream */}
-        <div className="side">
-          <div className="panel">
-            <h2>Memory · multi-region survivability</h2>
-            <div className="body">
-              <div className="hint">
-                Every memory is <code>REGIONAL BY ROW</code>; the database is set to{" "}
-                <code>SURVIVE {survival.toUpperCase()} FAILURE</code>.{" "}
-                {chaosReal.available
-                  ? "The chaos button drains REAL nodes on the local rig — region status below is genuine gossip liveness."
-                  : "Run a failure drill — surviving counts come from a live query that excludes the downed region."}
-              </div>
-
-              {regions.map((r) => {
-                const rows = shownDist.find((d) => d.region === r.region)?.rows ?? 0;
-                const l = liveness.find((x) => x.region === r.region);
-                const down = regionDown(r.region);
-                return (
-                  <div className={`region ${down ? "down" : ""}`} key={r.region}>
-                    <span>
-                      <span className={`dot ${down ? "down" : "up"}`} />
-                      {r.region}
-                      {r.primary ? <span className="badge">PRIMARY</span> : null}
-                    </span>
-                    <span className="rows">
-                      {down
-                        ? l
-                          ? `0/${l.totalNodes} nodes — DOWN`
-                          : "unreachable"
-                        : l
-                          ? `${rows} memories · ${l.liveNodes}/${l.totalNodes} nodes`
-                          : `${rows} memories`}
-                    </span>
-                  </div>
-                );
-              })}
-
-              <button
-                className={`chaos ${downedRegion ? "armed" : ""}`}
-                onClick={toggleChaos}
-                disabled={chaosBusy}
-              >
-                {chaosBusy
-                  ? "⏳ DRAINING NODES…"
-                  : downedRegion
-                    ? "◼ RESTORE REGION"
-                    : chaosReal.available
-                      ? `⚡ KILL ${chaosReal.target ?? "A REGION"} (REAL)`
-                      : "⚡ FAILURE DRILL: DOWN A REGION"}
-              </button>
-
-              <div className="status">
-                {downedRegion ? (
-                  anyRealDown ? (
-                    <>
-                      <b style={{ color: "var(--red)" }}>{downedRegion} is genuinely offline</b>{" "}
-                      (nodes drained).
-                      <br />
-                      <span className="ok">✓ all {totalRows.toLocaleString()} memories</span>{" "}
-                      still readable and writable from surviving replicas — including
-                      those homed in the dead region. Zero data loss.
-                    </>
-                  ) : (
-                    <>
-                      <b style={{ color: "var(--red)" }}>{downedRegion} is offline (drill).</b>
-                      <br />
-                      <span className="ok">
-                        ✓ {survivingRows.toLocaleString()} of {totalRows.toLocaleString()} memories
-                      </span>{" "}
-                      still served from surviving regions — zero data loss, agent stays
-                      online.
-                    </>
-                  )
-                ) : (
-                  <>
-                    All regions healthy · {totalRows.toLocaleString()} memories replicated
-                    across {regions.length} regions.
-                  </>
-                )}
-              </div>
-            </div>
+      {/* problem */}
+      <section>
+        <div className="wrap">
+          <div className="sec-head">
+            <div className="eyebrow">The problem</div>
+            <h2>Most agent memory fails exactly when you need it.</h2>
+            <p>
+              An incident copilot is only trustworthy if its memory is available during a failure,
+              consistent across regions, and compliant with where data is allowed to live. Bolt a
+              vector store onto a cache onto a state store and none of those hold when a region goes
+              dark. BlackBox treats agent memory as what it actually is — a distributed-systems
+              problem — and solves it with one database.
+            </p>
           </div>
+        </div>
+      </section>
 
-          {incidentInfo && (
-            <div className="panel">
-              <h2>Active incident</h2>
-              <div className="body">
-                <div className="inc-title">
-                  <span className={`sev sev-${incidentInfo.incident.severity.toLowerCase()}`}>
-                    {incidentInfo.incident.severity}
-                  </span>{" "}
-                  {incidentInfo.incident.title}
-                </div>
-                <div className="inc-meta">
-                  phase: <b>{incidentInfo.state?.phase ?? "triage"}</b> · status:{" "}
-                  <b>{incidentInfo.incident.status}</b> · region:{" "}
-                  <span className="region-badge">{incidentInfo.incident.region}</span>
-                </div>
-                {incidentInfo.state?.hypotheses?.length ? (
-                  <div className="inc-list">
-                    <span className="inc-label">hypotheses</span>
-                    {incidentInfo.state.hypotheses.map((h, i) => (
-                      <div key={i}>• {h}</div>
-                    ))}
-                  </div>
-                ) : null}
-                {incidentInfo.state?.nextSteps?.length ? (
-                  <div className="inc-list">
-                    <span className="inc-label">next steps</span>
-                    {incidentInfo.state.nextSteps.map((s, i) => (
-                      <div key={i}>• {s}</div>
-                    ))}
-                  </div>
-                ) : null}
-              </div>
+      {/* how it works */}
+      <section id="how">
+        <div className="wrap">
+          <div className="sec-head">
+            <div className="eyebrow">How it works</div>
+            <h2>A reason &harr; recall &harr; act loop over durable memory.</h2>
+            <p>
+              The agent runs on Claude via Amazon Bedrock. Every turn it recalls before it reasons,
+              acts through typed tools, and writes what it learns back to memory — so the next
+              incident starts where the last one ended.
+            </p>
+          </div>
+          <div className="grid grid-4">
+            <div className="card step">
+              <div className="n">01 · episodic</div>
+              <h3>Incidents</h3>
+              <p>What happened, when, and how it was resolved — embedded for semantic recall.</p>
             </div>
-          )}
-
-          <div className="panel">
-            <h2>Memory stream · what the agent remembers</h2>
-            <div className="body memfeed">
-              {memories.length === 0 ? (
-                <div className="hint">
-                  Nothing yet — talk to the agent and watch its durable memory build
-                  up here, each entry pinned to its home region.
-                </div>
-              ) : (
-                memories.map((m) => (
-                  <div className="mem-item" key={m.id}>
-                    <span className="mem-kind">{KIND_ICONS[m.kind] ?? "▪"}</span>
-                    <span className="mem-content">{m.content}</span>
-                    <span className="region-badge">{m.region.replace("aws-", "")}</span>
-                  </div>
-                ))
-              )}
+            <div className="card step">
+              <div className="n">02 · procedural</div>
+              <h3>Runbooks</h3>
+              <p>How to fix classes of problem. Resolutions distil into new runbooks automatically.</p>
+            </div>
+            <div className="card step">
+              <div className="n">03 · working</div>
+              <h3>Thought stream</h3>
+              <p>The agent&rsquo;s own observations, actions, and reflections, importance-weighted.</p>
+            </div>
+            <div className="card step">
+              <div className="n">04 · transactional</div>
+              <h3>Live state</h3>
+              <p>Phase, hypotheses, and next steps for an in-flight incident — strongly consistent.</p>
             </div>
           </div>
         </div>
-      </div>
-    </div>
+      </section>
+
+      {/* why cockroachdb */}
+      <section id="why">
+        <div className="wrap">
+          <div className="sec-head">
+            <div className="eyebrow">Why CockroachDB</div>
+            <h2>Not a vector store you could swap for anything.</h2>
+            <p>
+              BlackBox is designed around the capabilities only CockroachDB brings together in one
+              system of record.
+            </p>
+          </div>
+          <div className="why">
+            <div className="why-row">
+              <div>
+                <code>REGIONAL BY ROW</code>
+              </div>
+              <div>
+                <div className="cap">Data residency, by row.</div>
+                <p>
+                  Each memory is pinned to its home region. An EU incident&rsquo;s data physically
+                  stays in the EU, and local reads stay fast — one logical database, per-row
+                  domiciling.
+                </p>
+              </div>
+            </div>
+            <div className="why-row">
+              <div>
+                <code>SURVIVE REGION FAILURE</code>
+              </div>
+              <div>
+                <div className="cap">Memory that outlives the outage.</div>
+                <p>
+                  Lose an entire cloud region and the agent&rsquo;s memory stays readable and
+                  writable from surviving replicas, with no data loss. The reason this runs here and
+                  not on a single-region vector store.
+                </p>
+              </div>
+            </div>
+            <div className="why-row">
+              <div>
+                <code>VECTOR INDEX (C-SPANN)</code>
+              </div>
+              <div>
+                <div className="cap">Distributed semantic recall.</div>
+                <p>
+                  Region-prefixed vector indexes keep each region&rsquo;s k-means tree co-located
+                  with its data. &ldquo;Have we seen this before?&rdquo; over thousands of incidents,
+                  answered locally and survivably.
+                </p>
+              </div>
+            </div>
+            <div className="why-row">
+              <div>
+                <code>Managed MCP Server</code>
+              </div>
+              <div>
+                <div className="cap">The agent can read its own database.</div>
+                <p>
+                  Through CockroachDB&rsquo;s Managed MCP Server, the agent runs read-only SQL
+                  against the live cluster it operates — inspecting schema, health, and its own
+                  memory during reasoning.
+                </p>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* survivability proof */}
+      <section id="proof">
+        <div className="wrap">
+          <div className="sec-head">
+            <div className="eyebrow">The proof</div>
+            <h2>We killed the primary region with the memory loaded.</h2>
+            <p>
+              On a nine-node, three-region cluster, we drained every node in the database&rsquo;s
+              primary region while thousands of memories were in place. Recall kept answering.
+              Writes homed in the dead region kept committing. Nothing was lost.
+            </p>
+          </div>
+          <div className="metrics">
+            <div className="metric">
+              <div className="v">3 / 3</div>
+              <div className="l">regions serving before failure</div>
+            </div>
+            <div className="metric">
+              <div className="v">100%</div>
+              <div className="l">memories readable with the primary region down</div>
+            </div>
+            <div className="metric">
+              <div className="v">0</div>
+              <div className="l">rows lost — writes to the dead region committed</div>
+            </div>
+          </div>
+          <div className="codeblock" aria-label="Query plan showing the distributed vector index">
+            <span className="c"># EXPLAIN — recall is served by the distributed vector index, per region</span>
+            <br />
+            &bull; vector search
+            <br />
+            &nbsp;&nbsp;table: incidents@<span className="hl">incidents_embedding_idx</span>
+            <br />
+            &nbsp;&nbsp;prefix spans: [/&lsquo;aws-ap-south-1&rsquo;] [/&lsquo;aws-eu-west-1&rsquo;]
+            [/&lsquo;aws-us-east-1&rsquo;]
+          </div>
+        </div>
+      </section>
+
+      {/* agentic */}
+      <section>
+        <div className="wrap">
+          <div className="sec-head">
+            <div className="eyebrow">More than retrieval</div>
+            <h2>Memory that compounds — and an agent that can triage itself.</h2>
+          </div>
+          <div className="grid grid-3">
+            <div className="card">
+              <div className="k">Learning loop</div>
+              <h3>It gets smarter per incident</h3>
+              <p>
+                Resolving an incident distils the fix into a new runbook. The next similar incident
+                recalls the solution the agent just learned — not a chat log, compounding memory.
+              </p>
+            </div>
+            <div className="card">
+              <div className="k">Self-diagnosis</div>
+              <h3>It knows the health of its own memory</h3>
+              <p>
+                The agent&rsquo;s memory is a CockroachDB cluster, and it can inspect that
+                cluster&rsquo;s region health mid-outage — reporting which regions are down and why
+                its memory is still intact.
+              </p>
+            </div>
+            <div className="card">
+              <div className="k">Production-shaped</div>
+              <h3>Tested, guarded, observable</h3>
+              <p>
+                Read-only MCP access, parameterised SQL, rate limiting, security headers, and a real
+                test suite. Every tool call is an inspectable event.
+              </p>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* cta */}
+      <section>
+        <div className="wrap" style={{ textAlign: "center" }}>
+          <h2 style={{ fontSize: "clamp(1.8rem, 1.3rem + 1.6vw, 2.6rem)", maxWidth: "20ch", margin: "0 auto" }}>
+            Watch an agent remember through a region failure.
+          </h2>
+          <div className="hero-cta" style={{ justifyContent: "center", marginTop: 28 }}>
+            <Link href="/console" className="btn btn-primary">
+              Open the live console
+            </Link>
+            <a href={REPO} className="btn btn-ghost">
+              Read the source
+            </a>
+          </div>
+        </div>
+      </section>
+
+      <footer>
+        <div className="wrap foot-inner">
+          <div>
+            <div className="brand" style={{ marginBottom: 8 }}>
+              <span className="mark">
+                Black<b>Box</b>
+              </span>
+            </div>
+            <div>Built for the CockroachDB &times; AWS &ldquo;Build with Agentic Memory&rdquo; hackathon. Apache-2.0.</div>
+          </div>
+          <div className="foot-links">
+            <Link href="/console">Console</Link>
+            <a href={REPO}>GitHub</a>
+            <a href={`${REPO}/blob/main/ARCHITECTURE.md`}>Architecture</a>
+            <a href={`${REPO}/blob/main/FEEDBACK.md`}>Feedback</a>
+          </div>
+        </div>
+      </footer>
+    </>
   );
 }

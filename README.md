@@ -10,7 +10,7 @@ region goes dark mid-incident, the agent keeps remembering and keeps reasoning.
 
 > Built for the **CockroachDB Ã— AWS "Build with Agentic Memory" Hackathon.**
 >
-> **ðŸ”´ Live demo: https://blackbox-web-eight.vercel.app** *(live: real Claude on Bedrock + multi-region CockroachDB Cloud)*
+> **ðŸ”´ Live demo: https://blackbox-web-eight.vercel.app** — landing page; the interactive agent is at `/console` *(live: real Claude on Bedrock + multi-region CockroachDB Cloud)*
 > full UX with scripted agent; flips to live Bedrock + CockroachDB Cloud for judging)*
 
 ---
