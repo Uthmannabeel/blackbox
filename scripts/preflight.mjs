@@ -1,7 +1,8 @@
 // Demo pre-flight: verify every video beat is live before recording.
 //   node scripts/preflight.mjs [baseUrl]
 const BASE = process.argv[2] || "https://blackbox-web-eight.vercel.app";
-const sid = "preflight-" + Math.floor(Date.now() / 1000);
+import { randomUUID } from "node:crypto";
+const sid = randomUUID(); // session_id is a UUID column — must be valid
 let pass = 0, fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? "PASS" : "FAIL"}  ${m}`); c ? pass++ : fail++; return c; };
 

@@ -49,9 +49,14 @@ export async function POST(req: NextRequest) {
       message: string;
     };
 
-    // Validate at the boundary.
-    if (typeof sessionId !== "string" || typeof message !== "string" || !sessionId || !message) {
+    // Validate at the boundary. sessionId must be a UUID — it keys UUID columns
+    // in the memory tables, so a malformed one would fail writes downstream.
+    const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+    if (typeof sessionId !== "string" || typeof message !== "string" || !message) {
       return NextResponse.json({ error: "sessionId and message are required" }, { status: 400 });
+    }
+    if (!UUID_RE.test(sessionId)) {
+      return NextResponse.json({ error: "sessionId must be a UUID" }, { status: 400 });
     }
     if (message.length > MAX_MESSAGE_LEN) {
       return NextResponse.json(
@@ -76,7 +81,6 @@ export async function POST(req: NextRequest) {
       events: result.events,
       evidence: result.evidence ?? [],
       memoryDegraded: result.memoryDegraded ?? false,
-      memoryError: result.memoryError ?? null,
       incidentId: agent.currentIncidentId,
     });
   } catch (err) {
