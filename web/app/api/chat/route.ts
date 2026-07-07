@@ -76,6 +76,7 @@ export async function POST(req: NextRequest) {
       events: result.events,
       evidence: result.evidence ?? [],
       memoryDegraded: result.memoryDegraded ?? false,
+      memoryError: result.memoryError ?? null,
       incidentId: agent.currentIncidentId,
     });
   } catch (err) {

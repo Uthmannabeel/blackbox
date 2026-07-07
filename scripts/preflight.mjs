@@ -52,7 +52,7 @@ const dt = ((Date.now() - t) / 1000).toFixed(1);
 ok(c1.status === 200 && (c1.body.reply || "").length > 40, `Bedrock reply in ${dt}s (${(c1.body.reply || "").length} chars)`);
 ok(tools(c1.body.events).includes("recall_similar_incidents"), `recalled incidents (tools: ${tools(c1.body.events).join(", ")})`);
 ok((c1.body.evidence || []).length > 0, `evidence ledger: ${(c1.body.evidence || []).length} items`);
-ok(!c1.body.memoryDegraded, `memory writes durable (degraded=${c1.body.memoryDegraded})`);
+ok(!c1.body.memoryDegraded, `memory writes durable (degraded=${c1.body.memoryDegraded}${c1.body.memoryError ? " · err: " + c1.body.memoryError : ""})`);
 ok(!!c1.body.incidentId, `incident opened: ${c1.body.incidentId}`);
 
 // Beat III: self-diagnosis via MCP

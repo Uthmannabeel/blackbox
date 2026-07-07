@@ -44,6 +44,8 @@ export interface AgentResult {
   evidence: Evidence[];
   /** True if any durable-memory write failed this turn (memory not fully persisted). */
   memoryDegraded?: boolean;
+  /** First memory-write error this turn, if any (diagnostic). */
+  memoryError?: string | null;
 }
 
 /** Common surface implemented by both the real and mock agents. */
@@ -94,6 +96,7 @@ export class BlackBoxAgent implements Agent {
    */
   private pendingWrites: Promise<boolean>[] = [];
   private memoryDegraded = false;
+  private lastMemoryError: string | null = null;
 
   private recordMemory(input: Parameters<IMemoryService["remember"]>[0]): void {
     // Stream writes (messages, action logs) skip embedding — they're shown in
@@ -104,7 +107,8 @@ export class BlackBoxAgent implements Agent {
       this.memory.remember({ ...input, embed: false }).then(
         () => true,
         (err) => {
-          console.error("[agent] memory write failed:", (err as Error).message);
+          this.lastMemoryError = (err as Error).message;
+          console.error("[agent] memory write failed:", this.lastMemoryError);
           return false;
         },
       ),
@@ -143,6 +147,7 @@ export class BlackBoxAgent implements Agent {
     const events: AgentEvent[] = [];
     this.ctx.evidence = [];
     this.memoryDegraded = false;
+    this.lastMemoryError = null;
 
     this.trimHistory();
 
@@ -191,7 +196,7 @@ export class BlackBoxAgent implements Agent {
           importance: 0.6,
         });
         await this.flushWrites();
-        return { reply, events, evidence: this.ctx.evidence, memoryDegraded: this.memoryDegraded };
+        return { reply, events, evidence: this.ctx.evidence, memoryDegraded: this.memoryDegraded, memoryError: this.lastMemoryError };
       }
 
       // Execute every requested tool and feed results back.
@@ -241,6 +246,7 @@ export class BlackBoxAgent implements Agent {
       events,
       evidence: this.ctx.evidence,
       memoryDegraded: this.memoryDegraded,
+      memoryError: this.lastMemoryError,
     };
   }
 }
