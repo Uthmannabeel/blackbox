@@ -1,5 +1,5 @@
 import { getPool, toVectorLiteral } from "./db.js";
-import { embed } from "./embeddings.js";
+import { embed, EMBED_DIM } from "./embeddings.js";
 import type {
   IMemoryService,
   Incident,
@@ -196,9 +196,12 @@ export class MemoryService implements IMemoryService {
     importance?: number;
     embed?: boolean;
   }): Promise<MemoryItem> {
-    // High-volume stream writes can skip embedding to conserve embedding quota;
-    // only recall-critical memory (incidents, runbooks) needs a vector.
-    const embedding = input.embed === false ? null : await embed(input.content);
+    // High-volume stream writes skip the embedding API call to conserve quota
+    // (only incidents/runbooks need real semantic recall). We store a zero
+    // vector rather than NULL so the row still satisfies the vector index and
+    // simply never ranks as a near match.
+    const embedding =
+      input.embed === false ? new Array(EMBED_DIM).fill(0) : await embed(input.content);
     const { rows } = await getPool().query(
       `INSERT INTO agent_memory (session_id, incident_id, kind, content, importance, embedding)
        VALUES ($1, $2, $3, $4, $5, $6)
@@ -210,7 +213,7 @@ export class MemoryService implements IMemoryService {
         input.kind,
         input.content,
         input.importance ?? 0.5,
-        embedding ? toVectorLiteral(embedding) : null,
+        toVectorLiteral(embedding),
       ],
     );
     return mapMemory(rows[0]);
