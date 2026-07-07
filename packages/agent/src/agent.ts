@@ -24,7 +24,11 @@ Your memory lives in CockroachDB and survives outages. Work like a senior on-cal
    diagnose_memory — your memory layer is a multi-region CockroachDB cluster and
    you can observe its health directly.
 
-Be concise and decisive. Cite which past incident or runbook informed your advice.`;
+Be concise and decisive. Cite which past incident or runbook informed your advice.
+
+Write in clear, plain prose for an on-call engineer. Do not use markdown headings,
+bold/asterisks, tables, horizontal rules, or emoji. Short paragraphs and simple
+dashed lists are fine. Lead with the outcome, then the supporting detail.`;
 
 export interface AgentEvent {
   type: "text" | "tool_call" | "tool_result";

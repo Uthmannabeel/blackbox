@@ -17,3 +17,6 @@ certs/
 
 # chaos rig binaries (downloaded, ~500MB)
 infra/chaos/bin/
+
+# local screenshot review artifacts
+shots/

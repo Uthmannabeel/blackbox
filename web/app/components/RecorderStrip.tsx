@@ -28,9 +28,9 @@ export function RecorderStrip() {
       .then((d) => {
         if (Array.isArray(d.distribution) && d.distribution.length) {
           setRegions(
-            d.distribution.map((x: { region: string; rows: number }) => ({
+            d.distribution.map((x: { region: string; rows: number | string }) => ({
               region: x.region,
-              rows: x.rows,
+              rows: Number(x.rows) || 0,
               live: true,
             })),
           );

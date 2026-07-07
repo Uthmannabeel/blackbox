@@ -40,6 +40,20 @@ const TOOL_LABELS: Record<string, string> = {
   diagnose_memory: "self-diagnosing memory layer",
 };
 
+/** Render agent output as clean prose — strip markdown artifacts and emoji. */
+function clean(text: string): string {
+  return text
+    .replace(/```/g, "")
+    .replace(/^\s*#{1,6}\s+/gm, "")
+    .replace(/^\s*---+\s*$/gm, "")
+    .replace(/\*\*(.*?)\*\*/g, "$1")
+    .replace(/`([^`]+)`/g, "$1")
+    .replace(/\p{Extended_Pictographic}/gu, "")
+    .replace(/[ \t]{2,}/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .trim();
+}
+
 const KIND_LABELS: Record<string, string> = {
   user_msg: "operator",
   agent_msg: "agent",
@@ -174,8 +188,10 @@ export default function Console() {
   }
 
   const shownDist = simDowned && survivorDist ? survivorDist : dist;
-  const totalRows = dist.reduce((s, d) => s + d.rows, 0);
-  const survivingRows = shownDist.filter((d) => d.region !== simDowned).reduce((s, d) => s + d.rows, 0);
+  const totalRows = dist.reduce((s, d) => s + Number(d.rows), 0);
+  const survivingRows = shownDist
+    .filter((d) => d.region !== simDowned)
+    .reduce((s, d) => s + Number(d.rows), 0);
 
   return (
     <div className="wrap console">
@@ -229,7 +245,7 @@ export default function Console() {
               ) : (
                 <div className={`msg ${t.role}`} key={i}>
                   <div className="who">{t.role === "user" ? "operator" : "blackbox"}</div>
-                  <div className="body-text">{t.text}</div>
+                  <div className="body-text">{t.role === "agent" ? clean(t.text) : t.text}</div>
                 </div>
               ),
             )}
@@ -337,7 +353,7 @@ export default function Console() {
                 memories.map((m) => (
                   <div className="mem-item" key={m.id}>
                     <span className="mem-kind">{KIND_LABELS[m.kind] ?? m.kind}</span>
-                    <span className="mem-content">{m.content}</span>
+                    <span className="mem-content">{clean(m.content)}</span>
                     <span className="region-badge">{m.region.replace("aws-", "")}</span>
                   </div>
                 ))
