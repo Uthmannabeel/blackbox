@@ -91,7 +91,32 @@ BlackBox is designed around what only CockroachDB does well:
 - A genuine reason/recall/act agent whose memory model maps to the three classic
   memory types, backed by production-shaped CockroachDB.
 - A live chaos moment that answers "why CockroachDB?" viscerally.
-- Real tests, rate limiting, security headers, and read-only guarded MCP access.
+- We red-teamed our own build and hardened the load-bearing paths (below) instead
+  of leaving them as demo scaffolding.
+
+## Production readiness — we reviewed our own code
+We ran a deliberately hostile senior-engineer review of BlackBox and fixed what a
+judge would (rightly) attack:
+
+- **Durable rate limiting, on CockroachDB.** The public agent endpoint is guarded
+  by an atomic, cross-instance rate limiter (per-minute + per-day per client)
+  backed by the same database — because an in-memory limiter resets on every
+  serverless invocation and would never protect the model budget. Even the
+  boring operational state is one system of record.
+- **No silent memory loss.** Durable-memory writes are awaited and their failures
+  surfaced to the UI (a `memoryDegraded` signal) — a memory product must not
+  quietly drop what it claims to remember.
+- **Read-only by the boundary, not a regex.** Cluster introspection routes only to
+  the Managed MCP Server's read-only tools; we deleted a client-side allow-list
+  that a data-modifying CTE could have slipped past.
+- **Least privilege.** A scoped `bedrock:InvokeModel`-only IAM policy and a
+  read-scoped MCP service account (Cluster Operator), documented in `infra/`.
+- **Honest instrumentation.** Recall provenance shows the raw vector distance, not
+  an invented similarity; the time-travel view states its GC-window bound; on
+  managed Cloud the failure drill is labelled "simulated" (a live exclusion query
+  proving surviving regions answer), with real node-kill shown on the local rig.
+- Plus parameterised SQL throughout, CSP + security headers, input validation,
+  exponential backoff on embedding throttles, and a test suite.
 
 ## What we learned
 Agent memory is a database problem, not a prompt problem. The properties that
