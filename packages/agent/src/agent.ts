@@ -6,7 +6,7 @@ import {
   type ToolConfiguration,
 } from "@aws-sdk/client-bedrock-runtime";
 import { createMemoryService, type IMemoryService } from "@blackbox/memory";
-import { buildTools, type AgentTool, type ToolContext } from "./tools.js";
+import { buildTools, type AgentTool, type ToolContext, type Evidence } from "./tools.js";
 
 const SYSTEM_PROMPT = `You are BlackBox, an expert SRE incident-response copilot.
 
@@ -41,6 +41,7 @@ export interface AgentEvent {
 export interface AgentResult {
   reply: string;
   events: AgentEvent[];
+  evidence: Evidence[];
 }
 
 /** Common surface implemented by both the real and mock agents. */
@@ -71,6 +72,7 @@ export class BlackBoxAgent implements Agent {
       memory: this.memory,
       sessionId: opts.sessionId,
       currentIncidentId: opts.incidentId ?? null,
+      evidence: [],
     };
     this.tools = buildTools(this.ctx);
     this.toolConfig = {
@@ -127,6 +129,7 @@ export class BlackBoxAgent implements Agent {
   /** Handle one operator message; returns the final reply plus a trace of events. */
   async chat(userMessage: string, maxSteps = 8): Promise<AgentResult> {
     const events: AgentEvent[] = [];
+    this.ctx.evidence = [];
 
     this.trimHistory();
 
@@ -175,7 +178,7 @@ export class BlackBoxAgent implements Agent {
           importance: 0.6,
         });
         await this.flushWrites();
-        return { reply, events };
+        return { reply, events, evidence: this.ctx.evidence };
       }
 
       // Execute every requested tool and feed results back.
@@ -223,6 +226,7 @@ export class BlackBoxAgent implements Agent {
     return {
       reply: "Reached step limit without a final answer. Consider narrowing the request.",
       events,
+      evidence: this.ctx.evidence,
     };
   }
 }

@@ -11,11 +11,22 @@ export interface AgentTool {
   handler: (input: any) => Promise<string>;
 }
 
+/** One piece of provenance the agent used to reach its answer. */
+export interface Evidence {
+  kind: "incident" | "runbook";
+  id: string;
+  title: string;
+  region: string;
+  distance: number;
+}
+
 export interface ToolContext {
   memory: IMemoryService;
   sessionId: string;
   /** The incident currently being worked, if any. Mutated as the agent opens one. */
   currentIncidentId: string | null;
+  /** Provenance collected this turn — recalled memories that informed the answer. */
+  evidence: Evidence[];
 }
 
 /** Build the toolset, bound to the live memory service + session context. */
@@ -42,6 +53,9 @@ export function buildTools(ctx: ToolContext): AgentTool[] {
       },
       handler: async (input) => {
         const hits = await ctx.memory.recallSimilarIncidents(input.situation, input.limit ?? 5);
+        for (const h of hits) {
+          ctx.evidence.push({ kind: "incident", id: h.item.id, title: h.item.title, region: h.item.region, distance: h.distance });
+        }
         if (hits.length === 0) return "No similar past incidents found.";
         return hits
           .map(
@@ -70,6 +84,9 @@ export function buildTools(ctx: ToolContext): AgentTool[] {
       },
       handler: async (input) => {
         const hits = await ctx.memory.recallRunbooks(input.situation, input.limit ?? 3);
+        for (const h of hits) {
+          ctx.evidence.push({ kind: "runbook", id: h.item.id, title: h.item.title, region: h.item.region, distance: h.distance });
+        }
         if (hits.length === 0) return "No relevant runbooks found.";
         return hits
           .map(

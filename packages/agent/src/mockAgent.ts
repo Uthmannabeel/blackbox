@@ -6,6 +6,7 @@ import {
   type Severity,
 } from "@blackbox/memory";
 import type { Agent, AgentEvent, AgentResult } from "./agent.js";
+import type { Evidence } from "./tools.js";
 
 /**
  * Offline, scripted stand-in for BlackBoxAgent. It exercises the *real* memory
@@ -66,11 +67,12 @@ export class MockAgent implements Agent {
           content: `diagnose_memory -> ${verdict}`,
           importance: 0.8,
         });
-        return { reply, events };
+        return { reply, events, evidence: [] };
       } catch (err) {
         return {
-          reply: `⚠️ Could not reach my memory layer for diagnosis: ${(err as Error).message}`,
+          reply: `Could not reach my memory layer for diagnosis: ${(err as Error).message}`,
           events,
+          evidence: [],
         };
       }
     }
@@ -115,7 +117,7 @@ export class MockAgent implements Agent {
         content: reply,
         importance: 0.6,
       });
-      return { reply, events };
+      return { reply, events, evidence: [] };
     }
 
     // 1. Recall similar past incidents.
@@ -135,6 +137,11 @@ export class MockAgent implements Agent {
       tool: "recall_runbooks",
       result: runbooks.map((h) => h.item.title).join("; ") || "none",
     });
+
+    const evidence: Evidence[] = [
+      ...incidents.map((h) => ({ kind: "incident" as const, id: h.item.id, title: h.item.title, region: h.item.region, distance: h.distance })),
+      ...runbooks.map((h) => ({ kind: "runbook" as const, id: h.item.id, title: h.item.title, region: h.item.region, distance: h.distance })),
+    ];
 
     const top = incidents[0]?.item;
     const rb = runbooks[0]?.item;
@@ -183,7 +190,7 @@ export class MockAgent implements Agent {
       importance: 0.6,
     });
 
-    return { reply, events };
+    return { reply, events, evidence };
   }
 
   private synthesize(

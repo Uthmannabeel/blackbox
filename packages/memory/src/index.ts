@@ -10,6 +10,8 @@ export { embed, EMBED_DIM } from "./embeddings.js";
 export { isMock, isMockEmbeddings, loadEnv } from "./env.js";
 export { regionLiveness, clusterHealth } from "./clusterHealth.js";
 export type { RegionHealth, ClusterHealth } from "./clusterHealth.js";
+export { snapshotAsOf, residencyProof } from "./timeTravel.js";
+export type { MemorySnapshot, ResidencyProof } from "./timeTravel.js";
 export * from "./types.js";
 
 /**

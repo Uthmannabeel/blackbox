@@ -54,6 +54,7 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       reply: result.reply,
       events: result.events,
+      evidence: result.evidence ?? [],
       incidentId: agent.currentIncidentId,
     });
   } catch (err) {

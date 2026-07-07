@@ -4,9 +4,11 @@ import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ThemeToggle } from "../components/ThemeToggle";
 
+interface Evidence { kind: string; id: string; title: string; region: string; distance: number }
+
 type Turn =
   | { role: "user"; text: string }
-  | { role: "agent"; text: string }
+  | { role: "agent"; text: string; evidence?: Evidence[] }
   | { role: "trace"; tool: string; detail: string };
 
 interface RegionInfo { region: string; primary?: boolean }
@@ -54,6 +56,13 @@ function clean(text: string): string {
     .trim();
 }
 
+function agoLabel(sec: number): string {
+  if (sec === 0) return "now";
+  const m = Math.floor(sec / 60);
+  const s = sec % 60;
+  return m > 0 ? `${m}m${s ? ` ${s}s` : ""} ago` : `${s}s ago`;
+}
+
 const KIND_LABELS: Record<string, string> = {
   user_msg: "operator",
   agent_msg: "agent",
@@ -70,6 +79,8 @@ export default function Console() {
   const [incidentInfo, setIncidentInfo] = useState<IncidentInfo | null>(null);
   const [memories, setMemories] = useState<MemoryRow[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
+  const [timeSeconds, setTimeSeconds] = useState(0);
+  const [snapshot, setSnapshot] = useState<{ total: number | null; sample: MemoryRow[] }>({ total: null, sample: [] });
 
   const [regions, setRegions] = useState<RegionInfo[]>([]);
   const [dist, setDist] = useState<Dist[]>([]);
@@ -103,13 +114,20 @@ export default function Console() {
   const refreshIncident = useCallback(async (id: string) => {
     try { const r = await fetch(`/api/incident/${id}`); if (r.ok) setIncidentInfo(await r.json()); } catch { /* keep */ }
   }, []);
+  const refreshSnapshot = useCallback(async (sec: number) => {
+    try {
+      const d = await (await fetch(`/api/timetravel?seconds=${Math.round(sec)}`)).json();
+      setSnapshot({ total: d.total ?? null, sample: d.sample ?? [] });
+    } catch { /* keep */ }
+  }, []);
 
   useEffect(() => {
     refreshRegions();
     refreshMemories();
     refreshStats();
+    refreshSnapshot(0);
     fetch("/api/chaos").then((r) => r.json()).then(setChaosReal).catch(() => {});
-  }, [refreshRegions, refreshMemories, refreshStats]);
+  }, [refreshRegions, refreshMemories, refreshStats, refreshSnapshot]);
 
   useEffect(() => {
     scrollRef.current?.scrollTo({ top: scrollRef.current.scrollHeight, behavior: "smooth" });
@@ -136,11 +154,12 @@ export default function Console() {
           tool: e.tool,
           detail: JSON.stringify(e.input ?? {}),
         }));
-      setTurns((t) => [...t, ...traceTurns, { role: "agent", text: data.reply }]);
+      setTurns((t) => [...t, ...traceTurns, { role: "agent", text: data.reply, evidence: data.evidence ?? [] }]);
       if (data.incidentId) refreshIncident(data.incidentId);
       refreshMemories();
       refreshRegions();
       refreshStats();
+      refreshSnapshot(timeSeconds);
     } catch (err) {
       const msg =
         err instanceof DOMException && err.name === "TimeoutError"
@@ -246,6 +265,20 @@ export default function Console() {
                 <div className={`msg ${t.role}`} key={i}>
                   <div className="who">{t.role === "user" ? "operator" : "blackbox"}</div>
                   <div className="body-text">{t.role === "agent" ? clean(t.text) : t.text}</div>
+                  {t.role === "agent" && t.evidence && t.evidence.length > 0 && (
+                    <div className="ledger">
+                      <div className="ledger-h">evidence — {t.evidence.length} memories recalled</div>
+                      {t.evidence.map((e, j) => (
+                        <div className="ledger-row" key={`${e.id}-${j}`}>
+                          <span className="ln">[{j + 1}]</span>
+                          <span className="lt">{e.title}</span>
+                          <span className="lm">
+                            {e.kind} · {e.region} · sim {Math.max(0, 1 - e.distance / 2).toFixed(2)}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               ),
             )}
@@ -319,6 +352,38 @@ export default function Console() {
                 ) : (
                   <>All regions healthy · {totalRows.toLocaleString()} memories across {regions.length} regions.</>
                 )}
+              </div>
+            </div>
+          </div>
+
+          <div className="panel">
+            <h2>Memory time-travel — AS OF SYSTEM TIME</h2>
+            <div className="body">
+              <div className="hint" style={{ marginBottom: 14 }}>
+                Rewind the agent&rsquo;s memory to a past moment. CockroachDB reads a consistent
+                historical snapshot — no backups, no separate store.
+              </div>
+              <div className="tt-readout">
+                <span className="tt-total">{snapshot.total != null ? snapshot.total.toLocaleString() : "—"}</span>
+                <span className="tt-label">memories {agoLabel(timeSeconds)}</span>
+              </div>
+              <input
+                className="tt-slider"
+                type="range"
+                min={0}
+                max={600}
+                step={10}
+                value={timeSeconds}
+                aria-label="Rewind memory (seconds ago)"
+                onChange={(e) => {
+                  const v = Number(e.target.value);
+                  setTimeSeconds(v);
+                  refreshSnapshot(v);
+                }}
+              />
+              <div className="tt-scale">
+                <span>now</span>
+                <span>10 min ago</span>
               </div>
             </div>
           </div>

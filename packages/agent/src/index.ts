@@ -6,7 +6,7 @@ export { BlackBoxAgent } from "./agent.js";
 export { MockAgent } from "./mockAgent.js";
 export type { Agent, AgentEvent, AgentResult } from "./agent.js";
 export { buildTools } from "./tools.js";
-export type { AgentTool, ToolContext } from "./tools.js";
+export type { AgentTool, ToolContext, Evidence } from "./tools.js";
 export { mcpConfigured, mcpRunSql } from "./mcp.js";
 export { handler as lambdaHandler } from "./lambda.js";
 
