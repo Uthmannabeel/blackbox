@@ -96,6 +96,9 @@ export interface IMemoryService {
     kind: MemoryKind;
     content: string;
     importance?: number;
+    /** Skip embedding this entry (default true). Used for high-volume stream
+     *  writes that don't need semantic recall — saves embedding calls. */
+    embed?: boolean;
   }): Promise<MemoryItem>;
   recallMemories(query: string, limit?: number): Promise<RecallHit<MemoryItem>[]>;
   /** Most recent entries in the agent's memory stream (for the UI feed). */

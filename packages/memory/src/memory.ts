@@ -194,8 +194,11 @@ export class MemoryService implements IMemoryService {
     kind: MemoryKind;
     content: string;
     importance?: number;
+    embed?: boolean;
   }): Promise<MemoryItem> {
-    const embedding = await embed(input.content);
+    // High-volume stream writes can skip embedding to conserve embedding quota;
+    // only recall-critical memory (incidents, runbooks) needs a vector.
+    const embedding = input.embed === false ? null : await embed(input.content);
     const { rows } = await getPool().query(
       `INSERT INTO agent_memory (session_id, incident_id, kind, content, importance, embedding)
        VALUES ($1, $2, $3, $4, $5, $6)
@@ -207,7 +210,7 @@ export class MemoryService implements IMemoryService {
         input.kind,
         input.content,
         input.importance ?? 0.5,
-        toVectorLiteral(embedding),
+        embedding ? toVectorLiteral(embedding) : null,
       ],
     );
     return mapMemory(rows[0]);

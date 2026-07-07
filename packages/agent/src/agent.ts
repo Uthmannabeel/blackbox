@@ -96,10 +96,12 @@ export class BlackBoxAgent implements Agent {
   private memoryDegraded = false;
 
   private recordMemory(input: Parameters<IMemoryService["remember"]>[0]): void {
-    // Resolve to true on success, false on failure — never swallow silently:
-    // flushWrites() surfaces failures so the UI can warn that memory is degraded.
+    // Stream writes (messages, action logs) skip embedding — they're shown in
+    // the memory feed but don't need semantic recall. Keeps per-turn embedding
+    // calls low so we don't exhaust embedding quota. Resolve to true/false so
+    // flushWrites() can surface real failures without swallowing them.
     this.pendingWrites.push(
-      this.memory.remember(input).then(
+      this.memory.remember({ ...input, embed: false }).then(
         () => true,
         (err) => {
           console.error("[agent] memory write failed:", (err as Error).message);

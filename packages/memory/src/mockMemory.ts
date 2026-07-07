@@ -201,6 +201,7 @@ export class MockMemoryService implements IMemoryService {
     kind: MemoryKind;
     content: string;
     importance?: number;
+    embed?: boolean;
   }): Promise<MemoryItem> {
     await this.seeded;
     const row: MemoryItem = {
