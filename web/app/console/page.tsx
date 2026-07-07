@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { ThemeToggle } from "../components/ThemeToggle";
+import { RegionMap } from "../components/RegionMap";
 
 interface Evidence { kind: string; id: string; title: string; region: string; distance: number }
 
@@ -316,6 +317,16 @@ export default function Console() {
                   ? "The control below drains real nodes; region status is live gossip liveness."
                   : "Run a failure drill — surviving counts come from a live query that excludes the downed region."}
               </div>
+              {regions.length > 0 && (
+                <RegionMap
+                  nodes={regions.map((r) => ({
+                    region: r.region,
+                    rows: shownDist.find((d) => d.region === r.region)?.rows ?? 0,
+                    down: regionDown(r.region),
+                    primary: r.primary,
+                  }))}
+                />
+              )}
               {regions.map((r) => {
                 const rows = shownDist.find((d) => d.region === r.region)?.rows ?? 0;
                 const l = liveness.find((x) => x.region === r.region);

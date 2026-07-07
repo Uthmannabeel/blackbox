@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { ResidencyProof } from "../../components/ResidencyProof";
 
 export const metadata: Metadata = {
   title: "Architecture — why CockroachDB",
@@ -129,6 +130,21 @@ CREATE TABLE incidents (
     VECTOR INDEX incidents_embedding_idx (crdb_region, embedding)
 ) LOCALITY REGIONAL BY ROW;`}
           </pre>
+        </div>
+      </section>
+
+      {/* residency proof (live) */}
+      <section className="bordered">
+        <div className="wrap">
+          <div className="sec-head">
+            <div className="eyebrow">Data residency</div>
+            <h2>Proved live, not promised.</h2>
+            <p>
+              Residency is a per-row property here, not a separate deployment. This reads straight
+              from the running cluster.
+            </p>
+          </div>
+          <ResidencyProof />
         </div>
       </section>
 
