@@ -301,11 +301,10 @@ export function buildTools(ctx: ToolContext): AgentTool[] {
         },
       },
       handler: async (input) => {
-        const sql = String(input.sql ?? "");
-        if (!/^\s*(select|show|explain|with)\b/i.test(sql)) {
-          return "Refused: inspect_cluster only runs read-only SELECT/SHOW/EXPLAIN/WITH.";
-        }
-        return mcpRunSql(sql);
+        // Read-only is enforced by the boundary, not a client regex: mcpRunSql
+        // routes only to the Managed MCP Server's read-only tools
+        // (select_query / show_statement / explain_query), which reject writes.
+        return mcpRunSql(String(input.sql ?? ""));
       },
     });
   }

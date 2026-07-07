@@ -42,6 +42,8 @@ export interface AgentResult {
   reply: string;
   events: AgentEvent[];
   evidence: Evidence[];
+  /** True if any durable-memory write failed this turn (memory not fully persisted). */
+  memoryDegraded?: boolean;
 }
 
 /** Common surface implemented by both the real and mock agents. */
@@ -90,18 +92,26 @@ export class BlackBoxAgent implements Agent {
    * loop would add seconds of latency per turn. flushWrites() awaits them all
    * before chat() returns (required for Lambda's freeze semantics).
    */
-  private pendingWrites: Promise<unknown>[] = [];
+  private pendingWrites: Promise<boolean>[] = [];
+  private memoryDegraded = false;
 
   private recordMemory(input: Parameters<IMemoryService["remember"]>[0]): void {
+    // Resolve to true on success, false on failure — never swallow silently:
+    // flushWrites() surfaces failures so the UI can warn that memory is degraded.
     this.pendingWrites.push(
-      this.memory.remember(input).catch((err) => {
-        console.error("[agent] memory write failed:", (err as Error).message);
-      }),
+      this.memory.remember(input).then(
+        () => true,
+        (err) => {
+          console.error("[agent] memory write failed:", (err as Error).message);
+          return false;
+        },
+      ),
     );
   }
 
   private async flushWrites(): Promise<void> {
-    await Promise.allSettled(this.pendingWrites);
+    const results = await Promise.all(this.pendingWrites);
+    if (results.some((ok) => ok === false)) this.memoryDegraded = true;
     this.pendingWrites = [];
   }
 
@@ -130,6 +140,7 @@ export class BlackBoxAgent implements Agent {
   async chat(userMessage: string, maxSteps = 8): Promise<AgentResult> {
     const events: AgentEvent[] = [];
     this.ctx.evidence = [];
+    this.memoryDegraded = false;
 
     this.trimHistory();
 
@@ -178,7 +189,7 @@ export class BlackBoxAgent implements Agent {
           importance: 0.6,
         });
         await this.flushWrites();
-        return { reply, events, evidence: this.ctx.evidence };
+        return { reply, events, evidence: this.ctx.evidence, memoryDegraded: this.memoryDegraded };
       }
 
       // Execute every requested tool and feed results back.
@@ -227,6 +238,7 @@ export class BlackBoxAgent implements Agent {
       reply: "Reached step limit without a final answer. Consider narrowing the request.",
       events,
       evidence: this.ctx.evidence,
+      memoryDegraded: this.memoryDegraded,
     };
   }
 }

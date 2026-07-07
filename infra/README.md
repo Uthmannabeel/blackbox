@@ -84,6 +84,23 @@ The agent is stateless (all state is in CockroachDB), so it packages cleanly as
 a Lambda behind an HTTP endpoint the web UI calls. See `infra/lambda/` (TODO)
 for the handler + SAM/CDK template. Store incident artifacts/postmortems in S3.
 
+## Least-privilege credentials (do this before submission)
+
+The demo was provisioned with broad roles to move fast. Tighten before it's public:
+
+- **AWS IAM user** — replace `AmazonBedrockFullAccess` with the scoped policy in
+  [`iam-bedrock-policy.json`](./iam-bedrock-policy.json) (only `InvokeModel` /
+  `InvokeModelWithResponseStream` on the two models we use). If the inference-profile
+  ARN scoping errors on your account, widen `Resource` to `"*"` but keep the two
+  actions.
+- **CockroachDB MCP service account** — the MCP server only needs to run read-only
+  SQL, so **Cluster Operator** is sufficient; drop **Cluster Admin** if it was granted.
+- **SQL user** — the app needs DML on the `blackbox` schema only, not cluster admin.
+
+The public `/api/chat` endpoint is additionally protected by a durable,
+CockroachDB-backed rate limiter (per-minute + per-day per client) so it can't be
+abused to run up the Bedrock bill — see `packages/memory/src/rateLimit.ts`.
+
 ## Cost note
 
 CockroachDB Cloud multi-region and Bedrock both bill by usage. For the demo,

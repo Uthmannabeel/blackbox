@@ -128,3 +128,15 @@ CREATE TABLE IF NOT EXISTS incident_state (
     crdb_region   crdb_internal_region NOT NULL DEFAULT default_to_database_primary_region(gateway_region())::crdb_internal_region,
     CONSTRAINT incident_state_pkey PRIMARY KEY (crdb_region, incident_id)
 ) LOCALITY REGIONAL BY ROW;
+
+-- ---------------------------------------------------------------------------
+-- rate_limits: durable, cross-instance rate limiting for the public agent
+-- endpoint. Backed by the same database (one system of record), so it works
+-- on serverless where an in-memory counter would reset per invocation.
+-- Regional table (homed in the primary region) — created lazily at runtime too.
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS rate_limits (
+    bucket       STRING PRIMARY KEY,
+    window_start TIMESTAMPTZ NOT NULL DEFAULT now(),
+    count        INT NOT NULL DEFAULT 0
+);

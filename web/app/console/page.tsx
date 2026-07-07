@@ -156,9 +156,11 @@ export default function Console() {
           detail: JSON.stringify(e.input ?? {}),
         }));
       setTurns((t) => [...t, ...traceTurns, { role: "agent", text: data.reply, evidence: data.evidence ?? [] }]);
+      if (data.memoryDegraded) {
+        setTurns((t) => [...t, { role: "trace", tool: "memory write degraded", detail: "some memories were not persisted" }]);
+      }
       if (data.incidentId) refreshIncident(data.incidentId);
       refreshMemories();
-      refreshRegions();
       refreshStats();
       refreshSnapshot(timeSeconds);
     } catch (err) {
@@ -268,13 +270,13 @@ export default function Console() {
                   <div className="body-text">{t.role === "agent" ? clean(t.text) : t.text}</div>
                   {t.role === "agent" && t.evidence && t.evidence.length > 0 && (
                     <div className="ledger">
-                      <div className="ledger-h">evidence — {t.evidence.length} memories recalled</div>
+                      <div className="ledger-h">evidence — {t.evidence.length} memories recalled · lower distance = closer</div>
                       {t.evidence.map((e, j) => (
                         <div className="ledger-row" key={`${e.id}-${j}`}>
                           <span className="ln">[{j + 1}]</span>
                           <span className="lt">{e.title}</span>
                           <span className="lm">
-                            {e.kind} · {e.region} · sim {Math.max(0, 1 - e.distance / 2).toFixed(2)}
+                            {e.kind} · {e.region} · dist {e.distance.toFixed(2)}
                           </span>
                         </div>
                       ))}
@@ -356,8 +358,10 @@ export default function Console() {
                     </>
                   ) : (
                     <>
-                      <span style={{ color: "var(--down)", fontWeight: 500 }}>{downedRegion} offline (drill).</span>{" "}
-                      <span className="ok">{survivingRows.toLocaleString()} of {totalRows.toLocaleString()} memories</span> still served from surviving regions.
+                      <span style={{ color: "var(--down)", fontWeight: 500 }}>Simulated:</span>{" "}
+                      a live query excluding <b>{downedRegion}</b> —{" "}
+                      <span className="ok">{survivingRows.toLocaleString()} of {totalRows.toLocaleString()} memories</span>{" "}
+                      still answer from surviving regions. A real node-kill is shown on the local rig.
                     </>
                   )
                 ) : (
@@ -372,7 +376,8 @@ export default function Console() {
             <div className="body">
               <div className="hint" style={{ marginBottom: 14 }}>
                 Rewind the agent&rsquo;s memory to a past moment. CockroachDB reads a consistent
-                historical snapshot — no backups, no separate store.
+                historical snapshot — no backups, no separate store. Bounded by the cluster&rsquo;s
+                garbage-collection window; reflects when each memory was written.
               </div>
               <div className="tt-readout">
                 <span className="tt-total">{snapshot.total != null ? snapshot.total.toLocaleString() : "—"}</span>

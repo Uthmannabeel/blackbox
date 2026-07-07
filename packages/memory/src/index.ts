@@ -12,6 +12,8 @@ export { regionLiveness, clusterHealth } from "./clusterHealth.js";
 export type { RegionHealth, ClusterHealth } from "./clusterHealth.js";
 export { snapshotAsOf, residencyProof } from "./timeTravel.js";
 export type { MemorySnapshot, ResidencyProof } from "./timeTravel.js";
+export { hitRateLimit } from "./rateLimit.js";
+export type { RateResult } from "./rateLimit.js";
 export * from "./types.js";
 
 /**

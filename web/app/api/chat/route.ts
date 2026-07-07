@@ -1,7 +1,28 @@
 import { NextRequest, NextResponse } from "next/server";
-import { isMock } from "@blackbox/memory";
+import { isMock, hitRateLimit } from "@blackbox/memory";
 import { getAgent } from "@/lib/agentSession";
 import { clientKey, rateLimit } from "@/lib/rateLimit";
+
+// Per-client caps. The minute cap stops loops; the day cap protects the
+// Bedrock budget from sustained abuse of this public endpoint.
+const PER_MIN = 20;
+const PER_DAY = 300;
+
+/** Durable, cross-instance limit via CockroachDB in live mode; in-memory for mock. */
+async function limited(key: string): Promise<boolean> {
+  if (isMock()) return !rateLimit(key).ok;
+  try {
+    const [m, d] = await Promise.all([
+      hitRateLimit(`chat:min:${key}`, PER_MIN, 60),
+      hitRateLimit(`chat:day:${key}`, PER_DAY, 86_400),
+    ]);
+    return !m.ok || !d.ok;
+  } catch {
+    // If the limiter itself is unreachable, fall back to the in-memory guard
+    // rather than failing open completely.
+    return !rateLimit(key).ok;
+  }
+}
 
 // The agent uses pg + the AWS SDK, so this route must run on Node, not Edge.
 export const runtime = "nodejs";
@@ -40,11 +61,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Rate limit per client (falls back to sessionId behind a shared proxy).
-    const limit = rateLimit(clientKey(req.headers, sessionId));
-    if (!limit.ok) {
+    if (await limited(clientKey(req.headers, sessionId))) {
       return NextResponse.json(
         { error: "Rate limit exceeded. Please slow down." },
-        { status: 429, headers: { "Retry-After": String(limit.retryAfterSeconds) } },
+        { status: 429, headers: { "Retry-After": "60" } },
       );
     }
 
@@ -55,6 +75,7 @@ export async function POST(req: NextRequest) {
       reply: result.reply,
       events: result.events,
       evidence: result.evidence ?? [],
+      memoryDegraded: result.memoryDegraded ?? false,
       incidentId: agent.currentIncidentId,
     });
   } catch (err) {

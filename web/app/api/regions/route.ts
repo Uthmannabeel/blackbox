@@ -18,6 +18,12 @@ const DEMO_REGIONS = [
   { region: "aws-ap-south-1", primary: false },
 ];
 
+// Short-lived cache for the common (no-exclude) live response. The distribution
+// query is a 3-table scan; without this it re-ran on every mount and chat turn
+// and would occasionally time out under load. Per warm instance; good enough.
+let cache: { at: number; body: unknown } | null = null;
+const CACHE_TTL = 10_000;
+
 /**
  * Region + replication status for the survivability panel.
  *
@@ -44,6 +50,11 @@ export async function GET(req: NextRequest) {
       distribution,
       survivalGoal: "region",
     });
+  }
+
+  // Serve the cached live response for the common (no-exclude) case.
+  if (!exclude && cache && Date.now() - cache.at < CACHE_TTL) {
+    return NextResponse.json(cache.body);
   }
 
   try {
@@ -86,13 +97,15 @@ export async function GET(req: NextRequest) {
       /* non-fatal */
     }
 
-    return NextResponse.json({
+    const body = {
       live: true,
       regions: regions.rows,
       distribution: distribution.rows,
       survivalGoal: survivability.rows[0]?.survival_goal ?? "unknown",
       liveness,
-    });
+    };
+    if (!exclude) cache = { at: Date.now(), body };
+    return NextResponse.json(body);
   } catch (err) {
     // No live cluster yet — return the intended demo topology so the UI renders.
     // Log the detail server-side; never leak connection/error internals to the client.
