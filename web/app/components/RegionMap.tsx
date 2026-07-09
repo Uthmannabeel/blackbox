@@ -2,7 +2,7 @@
 
 interface Node {
   region: string;
-  rows: number;
+  rows: number | null;
   down: boolean;
   primary?: boolean;
 }
@@ -49,7 +49,7 @@ export function RegionMap({ nodes }: { nodes: Node[] }) {
             <circle cx={pts[i].x} cy={pts[i].y} r={node.primary ? 9 : 7} className="rm-dot" />
             {node.primary && <circle cx={pts[i].x} cy={pts[i].y} r={14} className="rm-ring" />}
             <text x={pts[i].x} y={pts[i].y - 20} textAnchor="middle" className="rm-count">
-              {node.down ? "down" : node.rows.toLocaleString()}
+              {node.down ? "down" : node.rows == null ? "—" : node.rows.toLocaleString()}
             </text>
             <text x={pts[i].x} y={pts[i].y + 26} textAnchor="middle" className="rm-region">
               {short(node.region)}
