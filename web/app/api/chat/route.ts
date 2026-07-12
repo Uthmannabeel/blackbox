@@ -65,8 +65,8 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Rate limit per client (falls back to sessionId behind a shared proxy).
-    if (await limited(clientKey(req.headers, sessionId))) {
+    // Rate limit by the platform-trusted client IP (never a spoofable header).
+    if (await limited(clientKey(req.headers))) {
       return NextResponse.json(
         { error: "Rate limit exceeded. Please slow down." },
         { status: 429, headers: { "Retry-After": "60" } },
@@ -76,9 +76,16 @@ export async function POST(req: NextRequest) {
     const agent = getAgent(sessionId);
     const result = await agent.chat(message);
 
+    // Only surface the tool-call trace (name + inputs the UI renders). Raw
+    // tool_result payloads can carry pg error internals and full cluster query
+    // output — keep them server-side.
+    const events = result.events
+      .filter((e) => e.type === "tool_call")
+      .map((e) => ({ type: e.type, tool: e.tool, input: e.input }));
+
     return NextResponse.json({
       reply: result.reply,
-      events: result.events,
+      events,
       evidence: result.evidence ?? [],
       memoryDegraded: result.memoryDegraded ?? false,
       incidentId: agent.currentIncidentId,

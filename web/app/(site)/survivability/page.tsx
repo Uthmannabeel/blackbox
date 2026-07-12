@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { REPO } from "@/lib/demoData";
 
 export const metadata: Metadata = {
   title: "Survivability — we killed the primary region",
@@ -114,7 +115,7 @@ export default function Survivability() {
             <Link href="/console" className="btn btn-primary">
               Run the failure drill yourself
             </Link>
-            <a href="https://github.com/Uthmannabeel/blackbox/tree/main/infra/chaos" className="btn btn-ghost">
+            <a href={`${REPO}/tree/main/infra/chaos`} className="btn btn-ghost">
               Read the chaos rig
             </a>
           </div>

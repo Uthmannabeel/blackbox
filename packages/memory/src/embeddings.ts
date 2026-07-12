@@ -32,8 +32,21 @@ function isThrottle(err: unknown): boolean {
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
 
+/**
+ * Small per-instance cache of recent embeddings, keyed by exact input text.
+ * The agent embeds near-identical situation strings 2-3x per turn (one per
+ * recall tool), and endpoints like /api/stats embed a constant probe string on
+ * every request — all of which collapse to one Bedrock call here. Bounded FIFO
+ * so it can't grow without limit on a long-lived instance.
+ */
+const EMBED_CACHE_MAX = 256;
+const embedCache = new Map<string, number[]>();
+
 export async function embed(text: string): Promise<number[]> {
   if (isMockEmbeddings()) return mockEmbed(text);
+
+  const cached = embedCache.get(text);
+  if (cached) return cached;
 
   const modelId = process.env.BEDROCK_EMBED_MODEL_ID ?? "amazon.titan-embed-text-v2:0";
 
@@ -64,6 +77,11 @@ export async function embed(text: string): Promise<number[]> {
           `Bedrock returned ${payload.embedding?.length ?? 0} dims, expected ${EMBED_DIM}`,
         );
       }
+      if (embedCache.size >= EMBED_CACHE_MAX) {
+        const oldest = embedCache.keys().next().value;
+        if (oldest !== undefined) embedCache.delete(oldest);
+      }
+      embedCache.set(text, payload.embedding);
       return payload.embedding;
     } catch (err) {
       if (!isThrottle(err)) throw err;

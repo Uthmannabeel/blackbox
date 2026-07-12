@@ -1,6 +1,5 @@
 import Link from "next/link";
-
-const REPO = "https://github.com/Uthmannabeel/blackbox";
+import { REPO } from "@/lib/demoData";
 
 export function SiteFooter() {
   return (

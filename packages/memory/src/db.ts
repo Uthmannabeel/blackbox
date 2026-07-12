@@ -20,9 +20,16 @@ export function getPool(): Pool {
 
   pool = new Pool({
     connectionString,
-    // Keep the pool modest; CockroachDB prefers fewer, well-used connections.
-    max: 10,
+    // On Vercel every serverless instance keeps its own pool, so a burst of N
+    // instances holds up to max*N connections against the cluster's limit —
+    // keep max small. CockroachDB also prefers fewer, well-used connections.
+    max: 3,
     idleTimeoutMillis: 30_000,
+    // Fail fast instead of hanging on connect when a region is partitioned.
+    connectionTimeoutMillis: 5_000,
+    keepAlive: true,
+    // Let a frozen/idle serverless instance release its connections cleanly.
+    allowExitOnIdle: true,
     // CockroachDB Cloud requires TLS. verify-full is enforced via the URL.
     application_name: "blackbox",
   });

@@ -301,9 +301,9 @@ export function buildTools(ctx: ToolContext): AgentTool[] {
         },
       },
       handler: async (input) => {
-        // Read-only is enforced by the boundary, not a client regex: mcpRunSql
-        // routes only to the Managed MCP Server's read-only tools
-        // (select_query / show_statement / explain_query), which reject writes.
+        // Read-only is enforced two ways: mcpRunSql validates the statement
+        // (single SELECT/WITH/SHOW/EXPLAIN, no embedded DML) before it leaves
+        // the client, and it routes only to the MCP server's read-only tools.
         return mcpRunSql(String(input.sql ?? ""));
       },
     });

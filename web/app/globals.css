@@ -183,8 +183,6 @@ section.bordered { border-top: 1px solid var(--border); }
 .card .k { font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--accent-ink); }
 .card h3 { font-size: 1.08rem; margin-top: 13px; }
 .card p { margin-top: 9px; color: var(--ink-2); font-size: 0.94rem; }
-.card .ico { color: var(--accent); margin-bottom: 4px; }
-.card .ico svg { width: 20px; height: 20px; }
 
 .step .n { font-family: var(--font-mono); font-size: 12.5px; color: var(--muted); }
 

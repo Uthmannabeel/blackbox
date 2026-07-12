@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { RegionMap } from "./RegionMap";
+import { fetchRegions, fetchStats } from "@/lib/liveData";
+import { DEMO_REGIONS, shortRegion } from "@/lib/demoData";
 
 interface MapNode {
   region: string;
@@ -28,11 +30,12 @@ const CAPTURED_EVIDENCE = [
   { kind: "runbook", title: "Runbook: Connection pool exhaustion", region: "eu-west-1", dist: "1.28" },
 ] as const;
 
-const FALLBACK_REGIONS: MapNode[] = [
-  { region: "aws-eu-west-1", rows: null, down: false },
-  { region: "aws-us-east-1", rows: null, down: false, primary: true },
-  { region: "aws-ap-south-1", rows: null, down: false },
-];
+const FALLBACK_REGIONS: MapNode[] = DEMO_REGIONS.map((r) => ({
+  region: r.region,
+  rows: null,
+  down: false,
+  primary: r.primary,
+}));
 
 /** Home capabilities as a bento — every live cell reads the production cluster. */
 export function CapabilityBento() {
@@ -40,49 +43,44 @@ export function CapabilityBento() {
   const [stats, setStats] = useState<Stats>({ total: null, recallMs: null });
 
   useEffect(() => {
-    fetch("/api/regions")
-      .then((r) => r.json())
+    let mounted = true;
+
+    fetchRegions()
       .then((d) => {
-        if (!Array.isArray(d.distribution) || !d.distribution.length) return;
-        const primary = new Set(
-          (Array.isArray(d.regions) ? d.regions : [])
-            .filter((r: { primary?: boolean }) => r.primary)
-            .map((r: { region: string }) => r.region),
-        );
+        if (!mounted || !Array.isArray(d.distribution) || !d.distribution.length) return;
+        const primary = new Set((d.regions ?? []).filter((r) => r.primary).map((r) => r.region));
         const downed = new Set(
-          (Array.isArray(d.liveness) ? d.liveness : [])
-            .filter((l: { liveNodes: number }) => l.liveNodes === 0)
-            .map((l: { region: string }) => l.region),
+          (d.liveness ?? []).filter((l) => l.liveNodes === 0).map((l) => l.region),
         );
-        const mapped: MapNode[] = d.distribution.map(
-          (x: { region: string; rows: number | string }) => ({
-            region: x.region,
-            rows: Number(x.rows) || 0,
-            down: downed.has(x.region),
-            primary: primary.has(x.region),
-          }),
-        );
+        const mapped: MapNode[] = d.distribution.map((x) => ({
+          region: x.region,
+          rows: Number(x.rows) || 0,
+          down: downed.has(x.region),
+          primary: primary.has(x.region),
+        }));
         // Primary region at the top of the triangle (index 1).
         const ordered = [...mapped].sort((a, b) => Number(a.primary ?? false) - Number(b.primary ?? false));
-        if (ordered.length === 3) setNodes([ordered[0], ordered[2], ordered[1]]);
-        else setNodes(mapped);
+        setNodes(ordered.length === 3 ? [ordered[0], ordered[2], ordered[1]] : mapped);
       })
       .catch(() => {});
 
-    fetch("/api/stats")
-      .then((r) => r.json())
-      .then((d) =>
+    fetchStats()
+      .then((d) => {
+        if (!mounted) return;
         setStats({
           total: typeof d.totalMemories === "number" ? d.totalMemories : null,
           recallMs: typeof d.recallMs === "number" ? d.recallMs : null,
-        }),
-      )
+        });
+      })
       .catch(() => {});
+
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const maxRows = Math.max(1, ...nodes.map((n) => n.rows ?? 0));
   const bars = [...nodes].sort((a, b) => a.region.localeCompare(b.region));
-  const short = (r: string) => r.replace(/^aws-/, "");
 
   return (
     <div className="bento">
@@ -128,7 +126,7 @@ export function CapabilityBento() {
         <div className="k">Evidence</div>
         <h3>Every answer cites its memory</h3>
         <div className="ledger">
-          <div className="ledger-h">live recall, production cluster · lower = closer</div>
+          <div className="ledger-h">recall captured 2026-07-09, production cluster · lower = closer</div>
           {CAPTURED_EVIDENCE.map((e, i) => (
             <div className="ledger-row" key={i}>
               <span className="ln">[{i + 1}]</span>
@@ -150,7 +148,7 @@ export function CapabilityBento() {
         <div className="b-bars">
           {bars.map((n) => (
             <div className="res-bar-row" key={n.region}>
-              <span className="res-bar-label">{short(n.region)}</span>
+              <span className="res-bar-label">{shortRegion(n.region)}</span>
               <span className="res-bar-track">
                 <span className="res-bar-fill" style={{ width: `${Math.round(((n.rows ?? 0) / maxRows) * 100)}%` }} />
               </span>

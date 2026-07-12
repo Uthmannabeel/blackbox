@@ -150,6 +150,12 @@ export class BlackBoxAgent implements Agent {
     this.lastMemoryError = null;
 
     this.trimHistory();
+    // Restore point: if this turn throws mid-flight (e.g. a Bedrock throttle),
+    // we roll history back to here. Otherwise a dangling user/tool-result
+    // message would leave the history ending on a user role, and the next
+    // turn's user message would produce two consecutive user turns — which
+    // Bedrock Converse rejects, permanently bricking the cached session.
+    const historyMark = this.history.length;
 
     // Persist the operator turn to durable memory (non-blocking).
     this.recordMemory({
@@ -162,91 +168,112 @@ export class BlackBoxAgent implements Agent {
 
     this.history.push({ role: "user", content: [{ text: userMessage }] });
 
-    for (let step = 0; step < maxSteps; step++) {
-      const res = await this.client.send(
-        new ConverseCommand({
-          modelId: this.modelId,
-          system: [{ text: SYSTEM_PROMPT }],
-          messages: this.history,
-          toolConfig: this.toolConfig,
-          inferenceConfig: { maxTokens: 1500, temperature: 0.2 },
-        }),
-      );
+    try {
+      for (let step = 0; step < maxSteps; step++) {
+        const res = await this.client.send(
+          new ConverseCommand({
+            modelId: this.modelId,
+            system: [{ text: SYSTEM_PROMPT }],
+            messages: this.history,
+            toolConfig: this.toolConfig,
+            inferenceConfig: { maxTokens: 1500, temperature: 0.2 },
+          }),
+        );
 
-      const message = res.output?.message;
-      if (message) this.history.push(message);
+        const message = res.output?.message;
+        if (message) this.history.push(message);
 
-      const blocks: ContentBlock[] = message?.content ?? [];
-      for (const b of blocks) {
-        if (b.text) events.push({ type: "text", text: b.text });
-      }
-
-      if (res.stopReason !== "tool_use") {
-        const reply = blocks
-          .map((b) => b.text)
-          .filter(Boolean)
-          .join("\n")
-          .trim();
-
-        this.recordMemory({
-          sessionId: this.ctx.sessionId,
-          incidentId: this.ctx.currentIncidentId,
-          kind: "agent_msg",
-          content: reply || "(no text)",
-          importance: 0.6,
-        });
-        await this.flushWrites();
-        return { reply, events, evidence: this.ctx.evidence, memoryDegraded: this.memoryDegraded, memoryError: this.lastMemoryError };
-      }
-
-      // Execute every requested tool and feed results back.
-      const toolResults: ContentBlock[] = [];
-      for (const b of blocks) {
-        if (!b.toolUse) continue;
-        const { toolUseId, name, input } = b.toolUse;
-        if (!toolUseId || !name) continue;
-        events.push({ type: "tool_call", tool: name, input });
-
-        const tool = this.tools.find((t) => t.spec.name === name);
-        let output: string;
-        try {
-          output = tool
-            ? await tool.handler(input ?? {})
-            : `Unknown tool: ${name}`;
-        } catch (err) {
-          output = `Tool ${name} failed: ${(err as Error).message}`;
+        const blocks: ContentBlock[] = message?.content ?? [];
+        for (const b of blocks) {
+          if (b.text) events.push({ type: "text", text: b.text });
         }
-        events.push({ type: "tool_result", tool: name, result: output });
 
-        // Record significant actions as durable memory (non-blocking).
-        if (tool && name !== "recall_memories") {
+        if (res.stopReason !== "tool_use") {
+          const reply = blocks
+            .map((b) => b.text)
+            .filter(Boolean)
+            .join("\n")
+            .trim();
+
           this.recordMemory({
             sessionId: this.ctx.sessionId,
             incidentId: this.ctx.currentIncidentId,
-            kind: name.startsWith("recall") || name === "inspect_cluster" ? "observation" : "action",
-            content: `${name}(${JSON.stringify(input)}) -> ${output.slice(0, 500)}`,
-            importance: name.startsWith("recall") ? 0.4 : 0.8,
+            kind: "agent_msg",
+            content: reply || "(no text)",
+            importance: 0.6,
           });
+          await this.flushWrites();
+          return { reply, events, evidence: this.ctx.evidence, memoryDegraded: this.memoryDegraded, memoryError: this.lastMemoryError };
         }
 
-        toolResults.push({
-          toolResult: {
-            toolUseId,
-            content: [{ text: output }],
-          },
-        });
+        // Execute all tools requested in this step concurrently — they're
+        // independent, and each pays an embedding round-trip, so serializing
+        // them adds seconds per step. Results are reassembled in request order
+        // to preserve the toolUse/toolResult pairing Bedrock requires.
+        const calls = blocks
+          .map((b) => b.toolUse)
+          .filter((tu): tu is NonNullable<typeof tu> => Boolean(tu?.toolUseId && tu?.name));
+
+        const executed = await Promise.all(
+          calls.map(async ({ toolUseId, name, input }) => {
+            const tool = this.tools.find((t) => t.spec.name === name);
+            let output: string;
+            try {
+              output = tool ? await tool.handler(input ?? {}) : `Unknown tool: ${name}`;
+            } catch (err) {
+              output = `Tool ${name} failed: ${(err as Error).message}`;
+            }
+            return { toolUseId: toolUseId!, name: name!, input, output, found: Boolean(tool) };
+          }),
+        );
+
+        const toolResults: ContentBlock[] = [];
+        for (const { toolUseId, name, input, output, found } of executed) {
+          events.push({ type: "tool_call", tool: name, input });
+          events.push({ type: "tool_result", tool: name, result: output });
+
+          // Record significant actions as durable memory (non-blocking).
+          if (found && name !== "recall_memories") {
+            this.recordMemory({
+              sessionId: this.ctx.sessionId,
+              incidentId: this.ctx.currentIncidentId,
+              kind: name.startsWith("recall") || name === "inspect_cluster" ? "observation" : "action",
+              content: `${name}(${JSON.stringify(input)}) -> ${output.slice(0, 500)}`,
+              importance: name.startsWith("recall") ? 0.4 : 0.8,
+            });
+          }
+
+          toolResults.push({ toolResult: { toolUseId, content: [{ text: output }] } });
+        }
+
+        this.history.push({ role: "user", content: toolResults });
       }
 
-      this.history.push({ role: "user", content: toolResults });
+      // Hit the step limit. End history on an assistant message so every
+      // toolUse has its toolResult and the next turn still alternates roles.
+      const reply = "Reached step limit without a final answer. Consider narrowing the request.";
+      this.history.push({ role: "assistant", content: [{ text: reply }] });
+      this.recordMemory({
+        sessionId: this.ctx.sessionId,
+        incidentId: this.ctx.currentIncidentId,
+        kind: "agent_msg",
+        content: reply,
+        importance: 0.6,
+      });
+      await this.flushWrites();
+      return {
+        reply,
+        events,
+        evidence: this.ctx.evidence,
+        memoryDegraded: this.memoryDegraded,
+        memoryError: this.lastMemoryError,
+      };
+    } catch (err) {
+      // Roll back this turn's history and drop its queued writes so a transient
+      // failure can't corrupt the session for every subsequent turn.
+      this.history.length = historyMark;
+      this.pendingWrites = [];
+      throw err;
     }
-
-    await this.flushWrites();
-    return {
-      reply: "Reached step limit without a final answer. Consider narrowing the request.",
-      events,
-      evidence: this.ctx.evidence,
-      memoryDegraded: this.memoryDegraded,
-      memoryError: this.lastMemoryError,
-    };
   }
 }

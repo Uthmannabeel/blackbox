@@ -79,8 +79,12 @@ export class MockAgent implements Agent {
 
     // Resolution path: the operator reports the fix — close the incident and
     // run the LEARNING LOOP (same behavior as the real agent's tool handler).
+    // Guard against interrogatives: "What fixed this last time?" contains
+    // "fixed" but is a question, not a report that the incident is resolved.
+    const isQuestion = /^\s*(what|how|why|when|who|which|is |are |did |does |can )/i.test(userMessage) || userMessage.trim().endsWith("?");
     if (
       this._incidentId &&
+      !isQuestion &&
       /\b(resolved?|fixed|mark (it|this).*(resolved|fixed)|mitigated)\b/i.test(userMessage)
     ) {
       const id = this._incidentId;

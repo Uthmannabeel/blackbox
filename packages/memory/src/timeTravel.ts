@@ -22,10 +22,12 @@ export async function snapshotAsOf(secondsAgo: number): Promise<MemorySnapshot> 
   const s = Math.max(0, Math.min(86_400, Math.floor(secondsAgo)));
   const client = await getPool().connect();
   try {
-    await client.query("BEGIN");
-    // SET TRANSACTION AS OF SYSTEM TIME reads a consistent historical snapshot.
-    if (s > 0) await client.query(`SET TRANSACTION AS OF SYSTEM TIME '-${s}s'`);
-    const nowRes = await client.query(`SELECT (now() - INTERVAL '${s}s')::string AS at`);
+    // BEGIN + SET TRANSACTION AS OF SYSTEM TIME in one round-trip. AOST reads a
+    // consistent historical snapshot; `s` is a clamped integer, not user SQL.
+    await client.query(s > 0 ? `BEGIN; SET TRANSACTION AS OF SYSTEM TIME '-${s}s'` : "BEGIN");
+    // Inside the AOST transaction now() already returns the historical
+    // timestamp, so don't subtract the offset again — that would double it.
+    const nowRes = await client.query(`SELECT now()::string AS at`);
     const totalRes = await client.query(
       `SELECT (SELECT count(*) FROM incidents)
             + (SELECT count(*) FROM runbooks)

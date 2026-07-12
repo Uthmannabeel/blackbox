@@ -22,6 +22,13 @@ interface IncidentInfo {
 }
 interface Stats { totalMemories: number; recallMs: number | null; regionsLive: number; regionsTotal: number }
 
+// After a real node drain, wait for the cluster to settle before re-reading
+// topology (gossip liveness lags the actual shutdown by a few seconds).
+const CHAOS_SETTLE_MS = 6_000;
+// Time-travel slider bound; the "10 min ago" label must match this.
+const TT_MAX_SECONDS = 600;
+const TT_DEBOUNCE_MS = 200;
+
 const SUGGESTION =
   "checkout-api p99 latency just jumped to 8s and connections are maxed out. what do i do?";
 
@@ -95,6 +102,8 @@ export default function Console() {
   const [survivorDist, setSurvivorDist] = useState<Dist[] | null>(null);
 
   const scrollRef = useRef<HTMLDivElement>(null);
+  const ttAbortRef = useRef<AbortController | null>(null);
+  const ttDebounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const refreshRegions = useCallback(async () => {
     try {
@@ -116,10 +125,15 @@ export default function Console() {
     try { const r = await fetch(`/api/incident/${id}`); if (r.ok) setIncidentInfo(await r.json()); } catch { /* keep */ }
   }, []);
   const refreshSnapshot = useCallback(async (sec: number) => {
+    // Cancel any in-flight snapshot so fast slider drags can't resolve out of
+    // order and leave the readout showing a stale second.
+    ttAbortRef.current?.abort();
+    const ac = new AbortController();
+    ttAbortRef.current = ac;
     try {
-      const d = await (await fetch(`/api/timetravel?seconds=${Math.round(sec)}`)).json();
+      const d = await (await fetch(`/api/timetravel?seconds=${Math.round(sec)}`, { signal: ac.signal })).json();
       setSnapshot({ total: d.total ?? null, sample: d.sample ?? [] });
-    } catch { /* keep */ }
+    } catch { /* aborted or failed — keep last */ }
   }, []);
 
   useEffect(() => {
@@ -187,16 +201,23 @@ export default function Console() {
       setChaosBusy(true);
       try {
         const action = anyRealDown ? "restore" : "kill";
-        await fetch("/api/chaos", {
+        const res = await fetch("/api/chaos", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
           body: JSON.stringify({ action }),
           signal: AbortSignal.timeout(120_000),
         });
-        await new Promise((r) => setTimeout(r, 6_000));
+        if (!res.ok) {
+          const data = await res.json().catch(() => ({}));
+          setTurns((t) => [...t, { role: "trace", tool: "chaos control failed", detail: data.error ?? `HTTP ${res.status}` }]);
+        }
+        await new Promise((r) => setTimeout(r, CHAOS_SETTLE_MS));
         await refreshRegions();
         await refreshStats();
-      } catch { /* panel shows truth next refresh */ } finally { setChaosBusy(false); }
+      } catch (err) {
+        const detail = err instanceof DOMException && err.name === "TimeoutError" ? "timed out after 120s" : (err as Error).message;
+        setTurns((t) => [...t, { role: "trace", tool: "chaos control failed", detail }]);
+      } finally { setChaosBusy(false); }
       return;
     }
     if (simDowned) { setSimDowned(null); setSurvivorDist(null); refreshRegions(); return; }
@@ -387,14 +408,15 @@ export default function Console() {
                 className="tt-slider"
                 type="range"
                 min={0}
-                max={600}
+                max={TT_MAX_SECONDS}
                 step={10}
                 value={timeSeconds}
                 aria-label="Rewind memory (seconds ago)"
                 onChange={(e) => {
                   const v = Number(e.target.value);
                   setTimeSeconds(v);
-                  refreshSnapshot(v);
+                  if (ttDebounceRef.current) clearTimeout(ttDebounceRef.current);
+                  ttDebounceRef.current = setTimeout(() => refreshSnapshot(v), TT_DEBOUNCE_MS);
                 }}
               />
               <div className="tt-scale">

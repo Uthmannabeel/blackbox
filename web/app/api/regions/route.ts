@@ -6,23 +6,13 @@ import {
   MockMemoryService,
   regionLiveness,
 } from "@blackbox/memory";
+import { DEMO_REGIONS } from "@/lib/demoData";
+import { getRegionsCache, setRegionsCache } from "@/lib/regionsCache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 const REGION_RE = /^[a-z0-9-]{1,64}$/;
-
-const DEMO_REGIONS = [
-  { region: "aws-us-east-1", primary: true },
-  { region: "aws-eu-west-1", primary: false },
-  { region: "aws-ap-south-1", primary: false },
-];
-
-// Short-lived cache for the common (no-exclude) live response. The distribution
-// query is a 3-table scan; without this it re-ran on every mount and chat turn
-// and would occasionally time out under load. Per warm instance; good enough.
-let cache: { at: number; body: unknown } | null = null;
-const CACHE_TTL = 10_000;
 
 /**
  * Region + replication status for the survivability panel.
@@ -53,8 +43,9 @@ export async function GET(req: NextRequest) {
   }
 
   // Serve the cached live response for the common (no-exclude) case.
-  if (!exclude && cache && Date.now() - cache.at < CACHE_TTL) {
-    return NextResponse.json(cache.body);
+  if (!exclude) {
+    const cached = getRegionsCache();
+    if (cached) return NextResponse.json(cached);
   }
 
   try {
@@ -63,48 +54,49 @@ export async function GET(req: NextRequest) {
     // Resolve the connected database rather than assuming its name.
     const dbRes = await pool.query(`SELECT current_database() AS db`);
     const db: string = dbRes.rows[0].db;
-    const regions = await pool.query(
-      `SHOW REGIONS FROM DATABASE "${db.replace(/"/g, '""')}"`,
-    );
 
     // Per-region memory counts. With ?exclude, the downed region's rows are
     // omitted from the query itself — surviving replicas answer it.
     const filter = exclude ? `WHERE m.crdb_region::string != $1` : "";
-    const distribution = await pool.query(
-      `SELECT m.crdb_region::string AS region, count(*)::int AS rows FROM (
-         SELECT crdb_region FROM incidents
-         UNION ALL SELECT crdb_region FROM runbooks
-         UNION ALL SELECT crdb_region FROM agent_memory
-       ) AS m ${filter} GROUP BY m.crdb_region ORDER BY region`,
-      exclude ? [exclude] : [],
-    );
 
-    const survivability = await pool.query(
-      `SELECT survival_goal FROM [SHOW DATABASES] WHERE database_name = current_database()`,
-    );
-
-    // True node liveness per region from gossip — the UI shows genuinely-down
-    // regions, not client-side toggles. Best-effort (gossip view can lag).
-    let liveness: { region: string; liveNodes: number; totalNodes: number }[] = [];
-    try {
-      const { regions: rh } = await regionLiveness();
-      liveness = rh.map((r) => ({
-        region: r.region,
-        liveNodes: r.liveNodes,
-        totalNodes: r.totalNodes,
-      }));
-    } catch {
-      /* non-fatal */
-    }
+    // The region list, distribution, survival goal, and liveness are all
+    // independent — run them concurrently instead of four serial RTTs.
+    const [regions, distribution, survivability, livenessRes] = await Promise.all([
+      pool.query(`SHOW REGIONS FROM DATABASE "${db.replace(/"/g, '""')}"`),
+      pool.query(
+        `SELECT m.crdb_region::string AS region, count(*)::int AS rows FROM (
+           SELECT crdb_region FROM incidents
+           UNION ALL SELECT crdb_region FROM runbooks
+           UNION ALL SELECT crdb_region FROM agent_memory
+         ) AS m ${filter} GROUP BY m.crdb_region ORDER BY region`,
+        exclude ? [exclude] : [],
+      ),
+      pool.query(
+        `SELECT survival_goal FROM [SHOW DATABASES] WHERE database_name = current_database()`,
+      ),
+      // True node liveness per region from gossip — the UI shows genuinely-down
+      // regions, not client-side toggles. Best-effort (gossip view can lag).
+      regionLiveness().then(
+        ({ regions: rh }) =>
+          rh.map((r) => ({ region: r.region, liveNodes: r.liveNodes, totalNodes: r.totalNodes })),
+        () => [] as { region: string; liveNodes: number; totalNodes: number }[],
+      ),
+    ]);
+    const liveness = livenessRes;
 
     const body = {
       live: true,
       regions: regions.rows,
-      distribution: distribution.rows,
+      // count(*)::int comes back as a string via the int8 type parser (db.ts);
+      // coerce here so every client gets numbers, not "1170".
+      distribution: distribution.rows.map((r: { region: string; rows: number | string }) => ({
+        region: r.region,
+        rows: Number(r.rows),
+      })),
       survivalGoal: survivability.rows[0]?.survival_goal ?? "unknown",
       liveness,
     };
-    if (!exclude) cache = { at: Date.now(), body };
+    if (!exclude) setRegionsCache(body);
     return NextResponse.json(body);
   } catch (err) {
     // No live cluster yet — return the intended demo topology so the UI renders.

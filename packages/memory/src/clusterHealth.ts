@@ -67,6 +67,12 @@ async function databaseRegions(): Promise<RegionHealth[]> {
     .sort((a, b) => a.region.localeCompare(b.region));
 }
 
+// On managed Cloud, gossip_nodes is permanently restricted — it throws on every
+// call. Remember the first failure so we skip straight to the database-region
+// fallback thereafter instead of wasting a round-trip + server error each time.
+// (The local rig always has it, so this flag never flips there.)
+let nodeDetailUnsupported = false;
+
 /**
  * Per-region health. Prefers real node liveness (local rig); falls back to
  * database region metadata on managed Cloud. The boolean tells the caller
@@ -76,11 +82,14 @@ export async function regionLiveness(): Promise<{
   regions: RegionHealth[];
   nodeDetail: boolean;
 }> {
-  try {
-    return { regions: await nodeLevelLiveness(), nodeDetail: true };
-  } catch {
-    return { regions: await databaseRegions(), nodeDetail: false };
+  if (!nodeDetailUnsupported) {
+    try {
+      return { regions: await nodeLevelLiveness(), nodeDetail: true };
+    } catch {
+      nodeDetailUnsupported = true;
+    }
   }
+  return { regions: await databaseRegions(), nodeDetail: false };
 }
 
 /**

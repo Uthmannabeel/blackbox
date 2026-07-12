@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { ThemeToggle } from "./ThemeToggle";
+import { REPO } from "@/lib/demoData";
 
 const LINKS = [
   { href: "/product", label: "Product" },
@@ -27,7 +28,7 @@ export function SiteNav() {
               {l.label}
             </Link>
           ))}
-          <a href="https://github.com/Uthmannabeel/blackbox">GitHub</a>
+          <a href={REPO}>GitHub</a>
         </div>
         <div className="nav-right">
           <ThemeToggle />

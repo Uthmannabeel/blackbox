@@ -9,6 +9,8 @@ import { BlackBoxAgent } from "./agent.js";
  * by sessionId to preserve multi-turn context while a container is warm.
  */
 const warm = new Map<string, BlackBoxAgent>();
+const MAX_WARM = 100;
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 interface LambdaEvent {
   body?: string;
@@ -24,11 +26,20 @@ export async function handler(event: LambdaEvent) {
     if (!sessionId || !message) {
       return json(400, { error: "sessionId and message are required" });
     }
+    // sessionId keys UUID columns in the memory tables; reject non-UUIDs up
+    // front so agent_memory writes don't fail silently downstream.
+    if (!UUID_RE.test(sessionId)) {
+      return json(400, { error: "sessionId must be a UUID" });
+    }
 
     let agent = warm.get(sessionId);
-    if (!agent) {
-      // Bound the warm cache; durable memory lives in CockroachDB.
-      if (warm.size >= 100) {
+    if (agent) {
+      // Refresh recency so eviction is LRU, not FIFO — an active conversation
+      // shouldn't be dropped just because it was created first.
+      warm.delete(sessionId);
+      warm.set(sessionId, agent);
+    } else {
+      if (warm.size >= MAX_WARM) {
         const oldest = warm.keys().next().value;
         if (oldest) warm.delete(oldest);
       }
@@ -39,7 +50,10 @@ export async function handler(event: LambdaEvent) {
     const result = await agent.chat(message);
     return json(200, {
       reply: result.reply,
-      events: result.events,
+      // Only the tool-call trace; raw tool_result payloads stay server-side.
+      events: result.events
+        .filter((e) => e.type === "tool_call")
+        .map((e) => ({ type: e.type, tool: e.tool, input: e.input })),
       incidentId: agent.currentIncidentId,
     });
   } catch (err) {

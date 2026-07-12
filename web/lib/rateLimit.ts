@@ -46,9 +46,16 @@ export function rateLimit(key: string, now: number = Date.now()): RateLimitResul
   return { ok: true, remaining: MAX_REQUESTS - bucket.count, retryAfterSeconds: 0 };
 }
 
-/** Best-effort client key from proxy headers, falling back to a provided id. */
-export function clientKey(headers: Headers, fallback: string): string {
-  const fwd = headers.get("x-forwarded-for");
-  const ip = fwd ? fwd.split(",")[0]!.trim() : headers.get("x-real-ip");
-  return ip || fallback;
+/**
+ * Client key for abuse control. Uses ONLY the platform-provided client IP
+ * (`x-real-ip`, which Vercel sets to the true client and a client cannot
+ * forge). We deliberately do NOT parse `x-forwarded-for` (a client can prepend
+ * arbitrary values to it) or fall back to a client-supplied sessionId — either
+ * would let an attacker rotate the value per request and bypass the caps that
+ * protect the Bedrock budget. If no trusted IP is present (e.g. local dev), all
+ * requests share one bucket — fail closed, not open.
+ */
+export function clientKey(headers: Headers): string {
+  const ip = headers.get("x-real-ip")?.trim();
+  return ip || "shared";
 }

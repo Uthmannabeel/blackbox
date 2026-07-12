@@ -44,8 +44,10 @@ export class MemoryService implements IMemoryService {
   private async searchWithBeam(sql: string, params: unknown[]): Promise<any[]> {
     const client = await getPool().connect();
     try {
-      await client.query("BEGIN");
-      await client.query(`SET LOCAL vector_search_beam_size = ${this.beamSize}`);
+      // BEGIN + SET LOCAL in one simple-query round-trip (no bind params; the
+      // beam size is already clamped to a safe integer in the constructor).
+      // Against remote CockroachDB Cloud this saves a full RTT per recall.
+      await client.query(`BEGIN; SET LOCAL vector_search_beam_size = ${this.beamSize}`);
       const { rows } = await client.query(sql, params);
       await client.query("COMMIT");
       return rows;
@@ -196,10 +198,11 @@ export class MemoryService implements IMemoryService {
     importance?: number;
     embed?: boolean;
   }): Promise<MemoryItem> {
-    // High-volume stream writes skip the embedding API call to conserve quota
-    // (only incidents/runbooks need real semantic recall). We store a zero
-    // vector rather than NULL so the row still satisfies the vector index and
-    // simply never ranks as a near match.
+    // High-volume stream writes skip the embedding API call to conserve quota.
+    // We store a zero vector rather than NULL because the C-SPANN vector index
+    // rejects NULL embeddings on insert. A zero vector is NOT a "never matches"
+    // sentinel (it sits at distance 1.0 from any unit query), so recallMemories
+    // filters these kinds out explicitly rather than relying on ranking.
     const embedding =
       input.embed === false ? new Array(EMBED_DIM).fill(0) : await embed(input.content);
     const { rows } = await getPool().query(
@@ -224,6 +227,12 @@ export class MemoryService implements IMemoryService {
    * The SQL orders by pure distance so the C-SPANN vector index can serve it
    * (an expression ordering would force a full scan); we over-fetch 3x and
    * apply the importance re-ranking in the application layer.
+   *
+   * Only rows written WITH a real embedding are recallable. High-volume stream
+   * writes (messages, action/observation logs) are stored with a zero vector to
+   * conserve embedding quota (see remember()), and a zero vector sits at L2
+   * distance 1.0 from any unit query — close enough to out-rank genuinely
+   * dissimilar real memories. Excluding those kinds keeps recall meaningful.
    */
   async recallMemories(query: string, limit = 6): Promise<RecallHit<MemoryItem>[]> {
     const q = toVectorLiteral(await embed(query));
@@ -232,6 +241,7 @@ export class MemoryService implements IMemoryService {
               crdb_region::string AS region, created_at,
               embedding <-> $1 AS distance
          FROM agent_memory
+        WHERE kind NOT IN ('user_msg', 'agent_msg', 'observation', 'action')
         ORDER BY embedding <-> $1
         LIMIT $2`,
       [q, limit * 3],

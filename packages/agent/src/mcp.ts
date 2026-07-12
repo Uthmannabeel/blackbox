@@ -65,11 +65,38 @@ function toolFor(sql: string): { name: string; extraArgs: Record<string, unknown
   return { name: "select_query", extraArgs: { database: database() } };
 }
 
+// DML that can be smuggled inside a WITH (...) CTE and still execute. DDL
+// (create/drop/alter/…) can't appear in a CTE and is already excluded by the
+// prefix allowlist, so it's deliberately NOT listed here — listing it would
+// wrongly reject read-only introspection like `SHOW CREATE TABLE incidents`.
+const CTE_WRITE_KEYWORD = /\b(insert|update|delete|upsert)\b/i;
+
+/**
+ * Enforce read-only at the client boundary. The managed MCP `select_query`
+ * tool is the catch-all route for anything that isn't EXPLAIN/SHOW, so without
+ * this a prompt-injected agent could smuggle DML through a CTE such as
+ * `WITH x AS (DELETE FROM incidents RETURNING *) SELECT * FROM x`, which begins
+ * with `with` and would otherwise be forwarded verbatim. We allow only a single
+ * SELECT / WITH / SHOW / EXPLAIN statement and reject embedded DML.
+ */
+function assertReadOnly(sql: string): void {
+  const trimmed = sql.trim().replace(/;\s*$/, "");
+  if (!trimmed) throw new Error("empty SQL");
+  if (trimmed.includes(";")) throw new Error("multiple statements are not allowed");
+  if (!/^(select|with|show|explain)\b/i.test(trimmed)) {
+    throw new Error("only SELECT / WITH / SHOW / EXPLAIN statements are allowed");
+  }
+  if (/^with\b/i.test(trimmed) && CTE_WRITE_KEYWORD.test(trimmed)) {
+    throw new Error("data-modifying statements are not allowed");
+  }
+}
+
 /**
  * Run a read-only SQL statement against the cluster through the MCP server.
  * Returns the MCP tool's textual result.
  */
 export async function mcpRunSql(sql: string): Promise<string> {
+  assertReadOnly(sql);
   const client = await getClient();
   const { name, extraArgs } = toolFor(sql);
   const result = await client.callTool({

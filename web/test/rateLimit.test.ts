@@ -27,11 +27,19 @@ describe("rateLimit", () => {
 });
 
 describe("clientKey", () => {
-  test("prefers x-forwarded-for, falls back to the provided id", () => {
-    const h1 = new Headers({ "x-forwarded-for": "203.0.113.9, 10.0.0.1" });
-    expect(clientKey(h1, "session")).toBe("203.0.113.9");
+  test("uses only the platform-trusted x-real-ip", () => {
+    const h = new Headers({ "x-real-ip": "203.0.113.9" });
+    expect(clientKey(h)).toBe("203.0.113.9");
+  });
 
-    const h2 = new Headers();
-    expect(clientKey(h2, "session-fallback")).toBe("session-fallback");
+  test("ignores spoofable x-forwarded-for so it can't be rotated to bypass limits", () => {
+    // A client can prepend arbitrary values to x-forwarded-for; it must not
+    // become the rate-limit identity.
+    const h = new Headers({ "x-forwarded-for": "203.0.113.9, 10.0.0.1" });
+    expect(clientKey(h)).toBe("shared");
+  });
+
+  test("fails closed to a shared bucket when no trusted IP is present", () => {
+    expect(clientKey(new Headers())).toBe("shared");
   });
 });

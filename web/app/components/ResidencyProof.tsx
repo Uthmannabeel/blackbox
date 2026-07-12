@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { shortRegion } from "@/lib/demoData";
 
 interface Proof {
   region: string;
@@ -47,7 +48,7 @@ export function ResidencyProof() {
         <div className="res-dist-h">memories per region</div>
         {(p?.perRegion ?? []).map((r) => (
           <div className="res-bar-row" key={r.region}>
-            <span className="res-bar-label">{r.region.replace(/^aws-/, "")}</span>
+            <span className="res-bar-label">{shortRegion(r.region)}</span>
             <span className="res-bar-track">
               <span className="res-bar-fill" style={{ width: `${(r.rows / max) * 100}%` }} />
             </span>

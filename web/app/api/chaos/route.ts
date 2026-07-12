@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { Socket } from "node:net";
 import { isMock, regionLiveness, clusterHealth } from "@blackbox/memory";
+import { bustRegionsCache } from "@/lib/regionsCache";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -18,22 +19,34 @@ const CONTROL_PORT = process.env.CHAOS_CONTROL_PORT
   ? Number(process.env.CHAOS_CONTROL_PORT)
   : null;
 
+const DRAIN_SPACING_MS = 4_000;
+
 function sendControl(commands: string[]): Promise<void> {
   return new Promise((resolve, reject) => {
     const sock = new Socket();
-    sock.once("error", reject);
+    let done = false;
+    const finish = (err?: Error) => {
+      if (done) return;
+      done = true;
+      sock.destroy();
+      err ? reject(err) : resolve();
+    };
+    // Listen for the whole socket lifetime, not just once: a late error (node
+    // restart drops the port mid-drain) would otherwise be an uncaught
+    // exception inside the timer callback and crash the process.
+    sock.on("error", (err) => finish(err));
     sock.connect(CONTROL_PORT!, "127.0.0.1", () => {
-      // Space the commands out: each shutdown drains a node.
       let i = 0;
       const tick = () => {
+        if (done) return; // socket errored out — stop writing to a dead socket
         if (i >= commands.length) {
           sock.end();
-          resolve();
+          finish();
           return;
         }
         sock.write(commands[i]! + "\n");
         i++;
-        setTimeout(tick, 4_000);
+        setTimeout(tick, DRAIN_SPACING_MS);
       };
       tick();
     });
@@ -77,6 +90,10 @@ export async function POST(req: NextRequest) {
     const targets = nodes.filter((n) => (action === "kill" ? n.live : !n.live));
 
     await sendControl(targets.map((n) => `\\demo ${verb} ${n.id}`));
+
+    // The topology just changed — drop the cached /api/regions body so the next
+    // poll reflects the kill/restore immediately instead of up to 10s later.
+    bustRegionsCache();
 
     return NextResponse.json({
       ok: true,

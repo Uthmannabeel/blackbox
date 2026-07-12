@@ -2,6 +2,7 @@ import Link from "next/link";
 import { RecorderStrip } from "../components/RecorderStrip";
 import { LiveStat } from "../components/LiveStat";
 import { CapabilityBento } from "../components/CapabilityBento";
+import { REPO } from "@/lib/demoData";
 
 export default function Home() {
   return (
@@ -77,7 +78,7 @@ export default function Home() {
             <Link href="/console" className="btn btn-primary">
               Open the live console
             </Link>
-            <a href="https://github.com/Uthmannabeel/blackbox" className="btn btn-ghost">
+            <a href={REPO} className="btn btn-ghost">
               Read the source
             </a>
           </div>

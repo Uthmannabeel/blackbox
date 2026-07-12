@@ -1,6 +1,8 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { fetchRegions } from "@/lib/liveData";
+import { DEMO_REGIONS } from "@/lib/demoData";
 
 interface Region {
   region: string;
@@ -14,31 +16,29 @@ interface Region {
  * color in the whole design — the black box, still recording.
  */
 export function RecorderStrip() {
-  const [regions, setRegions] = useState<Region[]>([
-    { region: "aws-us-east-1", rows: 0, live: true },
-    { region: "aws-eu-west-1", rows: 0, live: true },
-    { region: "aws-ap-south-1", rows: 0, live: true },
-  ]);
+  const [regions, setRegions] = useState<Region[]>(
+    DEMO_REGIONS.map((r) => ({ region: r.region, rows: 0, live: true })),
+  );
   const [survival, setSurvival] = useState("REGION");
   const [connected, setConnected] = useState(false);
 
   useEffect(() => {
-    fetch("/api/regions")
-      .then((r) => r.json())
+    let mounted = true;
+    fetchRegions()
       .then((d) => {
+        if (!mounted) return;
         if (Array.isArray(d.distribution) && d.distribution.length) {
           setRegions(
-            d.distribution.map((x: { region: string; rows: number | string }) => ({
-              region: x.region,
-              rows: Number(x.rows) || 0,
-              live: true,
-            })),
+            d.distribution.map((x) => ({ region: x.region, rows: Number(x.rows) || 0, live: true })),
           );
         }
         if (d.survivalGoal) setSurvival(String(d.survivalGoal).toUpperCase());
         setConnected(Boolean(d.live));
       })
       .catch(() => {});
+    return () => {
+      mounted = false;
+    };
   }, []);
 
   const total = regions.reduce((s, r) => s + r.rows, 0);
