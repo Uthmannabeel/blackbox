@@ -12,9 +12,11 @@ Setup before recording:
 ---
 
 ### 0:00–0:15 — Hook
-> "Every AI agent claims to have memory — until the database behind it fails.
-> BlackBox is an incident copilot whose memory survives the crash. I'll prove it
-> by killing a region, live."
+> "Every AI agent claims to have memory — until the database behind it fails,
+> and it fails exactly when you need it: mid-outage. BlackBox is an incident
+> copilot whose memory survives the crash it's diagnosing. I'll prove it by
+> killing a whole region, live — zero of ten thousand memories lost, recall
+> still answering in 136 milliseconds."
 
 On screen: the landing hero + the flight-recorder strip showing three regions
 with live memory counts.
