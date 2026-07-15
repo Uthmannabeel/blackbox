@@ -153,7 +153,14 @@ CREATE TABLE incidents (
         <div className="wrap">
           <div className="sec-head">
             <div className="eyebrow">The comparison</div>
-            <h2>Why not a dedicated vector database?</h2>
+            <h2>Why not pgvector, DynamoDB, or Redis?</h2>
+            <p>
+              The survivability demo eliminates each usual choice: <b>pgvector</b> loses the agent&rsquo;s
+              memory when its region goes down; <b>DynamoDB</b> global tables are eventually consistent, so
+              live state and recalled memory can disagree mid-crisis; <b>Redis</b> is fast but not a durable
+              system of record; and a dedicated vector DB bolted to a separate state store is two systems to
+              keep in sync, split-brain during the one outage you can least afford it.
+            </p>
           </div>
           <div className="compare">
             <div className="them">

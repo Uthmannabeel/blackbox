@@ -10,6 +10,24 @@ We kill the agent's primary database region on camera: zero of 10,000 memories
 lost, recall still answering in 136 ms. The incident copilot whose memory
 survives the crash it's diagnosing.
 
+## How this maps to the judging criteria
+A skim, one line each — the rest of this page is the evidence.
+- **Agentic memory design** — CockroachDB is the agent's durable, multi-region
+  memory of record across four surfaces (episodic incidents, procedural
+  runbooks, a working-memory stream, and transactional live incident state):
+  vectors *and* strongly-consistent state in one database, 3,500+ memories
+  across three regions. Not toy queries.
+- **Technical implementation** — a typed reason/recall/act loop over Bedrock;
+  distributed vector index + Managed MCP Server; parameterised SQL,
+  statement-validated read-only cluster access, and a real test suite.
+- **Real-world impact** — answers the on-call's first question, "have we seen
+  this before?", in milliseconds — and keeps answering through a region
+  outage. Every resolution compounds into a runbook the next incident recalls.
+- **Creativity & originality** — an incident agent that must survive the
+  incident, and can diagnose its own memory cluster mid-outage.
+- **Production readiness** — durable rate limiting, least-privilege keys, honest
+  instrumentation, no silent memory loss. We red-teamed our own build (below).
+
 ## Inspiration
 Every AI agent demo has "memory" — until the database it depends on has a bad
 day. We asked a harder question: what should an agent remember when the thing
@@ -64,9 +82,33 @@ BlackBox triages, diagnoses, and helps mitigate production incidents:
 - AWS Lambda (deployable handler included; live demo on Vercel serverless)
 - (S3/other AWS services: not used in the current build)
 
-## Why CockroachDB specifically
-Most agent-memory projects use a vector store you could swap for anything.
-BlackBox is designed around what only CockroachDB does well:
+## Real-world impact
+An on-call engineer's first question at 3am is always the same: *"have we seen
+this before?"* Today answering it means grepping logs, scrolling Slack, and
+paging whoever remembers last quarter's outage. BlackBox answers it in
+milliseconds against the entire incident history — and because that memory is
+durable and multi-region, the answer survives the very outage you're fighting.
+The expensive part of incident response is re-deriving context under pressure;
+BlackBox keeps the context and keeps it *available when a region is down*. And
+because every resolution is distilled back into a recalled runbook, the second
+time an incident happens the fix is already on hand — institutional knowledge no
+single engineer has to carry.
+
+## Why CockroachDB specifically — and why not the obvious alternatives
+This is the question every judge asks, so here it is plainly. The survivability
+demo — kill the region, memory keeps answering — is not a party trick; it's the
+property the whole product depends on, and it eliminates each usual choice:
+- **pgvector / single-region Postgres** — loses the agent's entire memory the
+  moment its region goes down, which is exactly when an incident agent is needed.
+- **DynamoDB global tables** — cross-region replication is eventually consistent,
+  so live incident state and recalled memory can disagree mid-crisis.
+- **Redis / in-memory vector stores** — fast, but not a durable system of record;
+  a failover or restart is amnesia.
+- **A dedicated vector DB bolted to a separate state store** — two systems to
+  keep in sync, and split-brain during the one outage you can least afford it.
+
+CockroachDB replaces all of that with one strongly-consistent, multi-region
+system of record:
 - **`REGIONAL BY ROW`** → per-row data residency (an EU incident's memory never
   leaves the EU) plus low-latency local recall.
 - **`SURVIVE REGION FAILURE`** → the agent's memory outlives the outage it's
