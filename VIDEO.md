@@ -12,11 +12,15 @@ Setup before recording:
 ---
 
 ### 0:00–0:15 — Hook
-> "Every AI agent claims to have memory — until the database behind it fails,
-> and it fails exactly when you need it: mid-outage. BlackBox is an incident
+> "An hour of downtime costs most enterprises over three hundred thousand
+> dollars — and every AI agent claims to have memory, until the database behind
+> it fails, exactly when you need it: mid-outage. BlackBox is an incident
 > copilot whose memory survives the crash it's diagnosing. I'll prove it by
 > killing a whole region, live — zero of ten thousand memories lost, recall
 > still answering in 136 milliseconds."
+
+(Downtime figure: ITIC 2024 Hourly Cost of Downtime Survey — >90% of mid/large
+enterprises report >$300k/hour. Safe to say on camera.)
 
 On screen: the landing hero + the flight-recorder strip showing three regions
 with live memory counts.

@@ -83,7 +83,11 @@ BlackBox triages, diagnoses, and helps mitigate production incidents:
 - (S3/other AWS services: not used in the current build)
 
 ## Real-world impact
-An on-call engineer's first question at 3am is always the same: *"have we seen
+Downtime is expensive: over 90% of mid-size and large enterprises put the cost
+of a single hour of downtime above $300,000 ([ITIC 2024 Hourly Cost of Downtime
+Survey](https://itic-corp.com/itic-2024-hourly-cost-of-downtime-report/)).
+Every minute spent re-deriving context is paid at that rate. An on-call
+engineer's first question at 3am is always the same: *"have we seen
 this before?"* Today answering it means grepping logs, scrolling Slack, and
 paging whoever remembers last quarter's outage. BlackBox answers it in
 milliseconds against the entire incident history — and because that memory is
