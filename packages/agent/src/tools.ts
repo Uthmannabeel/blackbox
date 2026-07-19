@@ -1,4 +1,9 @@
-import { clusterHealth, isMock, type IMemoryService } from "@blackbox/memory";
+import {
+  clusterHealth,
+  isMock,
+  standardTierHealthCheck,
+  type IMemoryService,
+} from "@blackbox/memory";
 import { mcpConfigured, mcpRunSql } from "./mcp.js";
 
 /** A tool the agent can call: a Bedrock toolSpec + a handler. */
@@ -294,9 +299,26 @@ export function buildTools(ctx: ToolContext): AgentTool[] {
             : down === 1
               ? `One region is down, but survival goal '${h.survivalGoal}' means my memory remains fully readable and writable from surviving replicas.`
               : "Multiple regions down — memory availability may be at risk.";
+
+        // Run the official CockroachDB Agent Skill health-check procedure for
+        // this cluster's tier and cite it — the diagnosis follows a published,
+        // vendor-maintained operational skill, not ad-hoc queries.
+        let skillReport = "";
+        try {
+          const s = await standardTierHealthCheck();
+          const checkLines = s.checks.map(
+            (c) => `  ${c.ok ? "ok" : "FAIL"} ${c.name}: ${c.detail}`,
+          );
+          skillReport =
+            `\nPer ${s.citation}:\n${checkLines.join("\n")}\n` +
+            (s.allOk ? "All skill checks pass." : "Some skill checks did not pass — noted above.");
+        } catch {
+          skillReport = "\n(Skill-based health checks unavailable this turn.)";
+        }
+
         return (
           `Memory-layer health (gateway: ${h.gatewayRegion}, survival goal: ${h.survivalGoal}, ` +
-          `${h.totalMemories} memories):\n${lines.join("\n")}\n${verdict}`
+          `${h.totalMemories} memories):\n${lines.join("\n")}\n${verdict}${skillReport}`
         );
       },
     });

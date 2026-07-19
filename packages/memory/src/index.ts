@@ -9,6 +9,8 @@ export { getPool, closePool } from "./db.js";
 export { embed, EMBED_DIM } from "./embeddings.js";
 export { isMock, isMockEmbeddings, loadEnv } from "./env.js";
 export { regionLiveness, clusterHealth } from "./clusterHealth.js";
+export { standardTierHealthCheck, HEALTH_SKILL_CITATION } from "./skillChecks.js";
+export type { SkillCheck, SkillHealthReport } from "./skillChecks.js";
 export type { RegionHealth, ClusterHealth } from "./clusterHealth.js";
 export { snapshotAsOf, residencyProof } from "./timeTravel.js";
 export type { MemorySnapshot, ResidencyProof } from "./timeTravel.js";
