@@ -312,19 +312,17 @@ export default function Console() {
                       {t.evidence.map((e, j) => (
                         <div className="ledger-row" key={`${e.id}-${j}`}>
                           <span className="ln">[{j + 1}]</span>
-                          <span className="lt">
-                            {e.title}
+                          <span className="lt">{e.title}</span>
+                          <span className="lm">
+                            {e.kind} · {e.region} · dist {e.distance.toFixed(2)}
                             {e.sourceUrl && e.sourceUrl.startsWith("https://") && (
                               <>
-                                {" "}
+                                {" · "}
                                 <a className="lsrc" href={e.sourceUrl} target="_blank" rel="noopener noreferrer">
-                                  public postmortem ↗
+                                  source ↗
                                 </a>
                               </>
                             )}
-                          </span>
-                          <span className="lm">
-                            {e.kind} · {e.region} · dist {e.distance.toFixed(2)}
                           </span>
                         </div>
                       ))}
