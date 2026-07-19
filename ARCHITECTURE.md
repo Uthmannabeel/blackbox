@@ -2,11 +2,14 @@
 
 ## One-liner
 
-An SRE incident-response agent whose **agentic memory** is a multi-region
-CockroachDB deployment: region-pinned by row, survivable through a full region
-outage, and semantically searchable via distributed vector indexes. Reasoning
-runs on Amazon Bedrock; the agent introspects its own database through the
-CockroachDB Managed MCP Server.
+**Agentic-memory infrastructure** on a multi-region CockroachDB deployment:
+region-pinned by row, survivable through a full region outage, semantically
+searchable via distributed vector indexes, and **hygienic** — learned knowledge
+passes a gated write path (content filter, duplicate consolidation,
+contradiction detection, confidence scoring, decay) with every decision logged
+to an auditable event trail. Demonstrated by an incident-response agent whose
+reasoning runs on Amazon Bedrock and which introspects its own database through
+the CockroachDB Managed MCP Server.
 
 ## Diagram
 
@@ -111,7 +114,7 @@ operator ──▶ agent.chat(msg)
   the agent is stateless (all state in CockroachDB) so it scales horizontally on
   Lambda/ECS.
 - **Resilience**: `SURVIVE REGION FAILURE` + idempotent writes mean an incident
-  in one region does not take the copilot down.
+  in one region does not take the agent's memory down.
 
 ## Data residency (judging: real-world impact)
 

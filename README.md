@@ -1,12 +1,22 @@
 # BlackBox
 
-**The incident-response agent whose memory survives the crash.**
+**Survivable, hygienic agentic memory — proven under fire.**
 
-BlackBox is an SRE copilot that triages, diagnoses, and helps mitigate production
-incidents. Like an aircraft's flight recorder, its memory is built to survive the
-very failures it's helping you fight: it stays **globally available, strongly
-consistent, and region-pinned** on top of CockroachDB -- so when a whole cloud
-region goes dark mid-incident, the agent keeps remembering and keeps reasoning.
+BlackBox is agentic-memory infrastructure: a memory layer for AI agents that is
+**globally available, strongly consistent, region-pinned, and self-auditing** on
+top of CockroachDB. Like an aircraft's flight recorder, it is built to survive
+the very failures it records. We demonstrate it with the hardest client an
+agent memory can have — an incident-response agent that must keep remembering,
+learning, and reasoning while a cloud region burns underneath it.
+
+Two properties most agent memories lack, working together:
+
+- **Survivability** — kill an entire region and every memory stays readable and
+  writable, strongly consistent, with recall served from surviving replicas.
+- **Hygiene** — a gated write path: learned knowledge is content-filtered,
+  deduplicated into existing runbooks, contradiction-checked, confidence-scored,
+  reinforced when it proves out, and decayed when it never earns trust. An
+  append-only store is a log; this is a memory.
 
 We prove it, not claim it: in our demo we kill every node in the database's
 **primary region on camera** with 3,500+ memories loaded -- **zero memories lost**,

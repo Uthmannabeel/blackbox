@@ -20,7 +20,7 @@ export function SiteNav() {
           <span className="mark">
             Black<b>Box</b>
           </span>
-          <span className="tag">incident memory</span>
+          <span className="tag">agentic memory</span>
         </Link>
         <div className="nav-links">
           {LINKS.map((l) => (

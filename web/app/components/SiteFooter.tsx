@@ -13,7 +13,8 @@ export function SiteFooter() {
               </span>
             </div>
             <p style={{ color: "var(--muted)", fontSize: 13.5, maxWidth: "34ch" }}>
-              The incident-response agent whose memory survives the outage it&rsquo;s diagnosing.
+              Survivable, hygienic agentic memory — proven by an incident agent that keeps
+              remembering through the outage it&rsquo;s diagnosing.
             </p>
           </div>
           <div className="foot-col">

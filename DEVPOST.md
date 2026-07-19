@@ -7,45 +7,57 @@
 
 ## Tagline
 We kill the agent's primary database region on camera: zero of 10,000 memories
-lost, recall still answering in 136 ms. The incident copilot whose memory
-survives the crash it's diagnosing.
+lost, recall still answering in 136 ms. Survivable, hygienic agentic memory —
+demonstrated by an incident agent that keeps remembering through the crash
+it's diagnosing.
 
 ## How this maps to the judging criteria
 A skim, one line each — the rest of this page is the evidence.
 - **Agentic memory design** — CockroachDB is the agent's durable, multi-region
   memory of record across four surfaces (episodic incidents, procedural
-  runbooks, a working-memory stream, and transactional live incident state):
-  vectors *and* strongly-consistent state in one database, 3,500+ memories
-  across three regions. Not toy queries.
+  runbooks, a working-memory stream, and transactional live incident state) —
+  with a **hygienic write path**: learned knowledge is gated, deduplicated,
+  contradiction-checked, confidence-scored, reinforced, and decayed. Vectors
+  *and* strongly-consistent state in one database. Not toy queries, and not
+  an append-only log.
 - **Technical implementation** — a typed reason/recall/act loop over Bedrock;
   distributed vector index + Managed MCP Server; parameterised SQL,
   statement-validated read-only cluster access, and a real test suite.
 - **Real-world impact** — answers the on-call's first question, "have we seen
   this before?", in milliseconds — and keeps answering through a region
   outage. Every resolution compounds into a runbook the next incident recalls.
-- **Creativity & originality** — an incident agent that must survive the
-  incident, and can diagnose its own memory cluster mid-outage.
+- **Creativity & originality** — memory infrastructure that survives the
+  failure it is recording, audits its own writes, and can diagnose its own
+  cluster mid-outage. The agent is the demo; the memory is the product.
 - **Production readiness** — durable rate limiting, least-privilege keys, honest
   instrumentation, no silent memory loss. We red-teamed our own build (below).
 
 ## Inspiration
 Every AI agent demo has "memory" — until the database it depends on has a bad
-day. We asked a harder question: what should an agent remember when the thing
-it's helping you fix is a production outage? An SRE copilot is only trustworthy
-if its memory is **available during a failure, consistent across regions, and
-compliant with where data is allowed to live.** That is exactly, and almost
-uniquely, what CockroachDB is built for. So we built BlackBox: an incident
-copilot whose memory is a globally-distributed, survivable system of record —
-like an aircraft's flight recorder for your infrastructure.
+day. We asked a harder question: what does *production-grade* agent memory
+look like? It has to be **available during a failure, consistent across
+regions, compliant with where data may live — and trustworthy about what it
+lets itself remember.** The first three are exactly, and almost uniquely, what
+CockroachDB is built for; the fourth is a write-path discipline most agent
+memories skip entirely. So we built BlackBox: survivable, self-auditing
+agentic memory — like an aircraft's flight recorder for your infrastructure —
+and we prove it with the hardest client a memory can have: an incident-response
+agent working the very outage that just took down one of its own regions.
 
 ## What it does
-BlackBox triages, diagnoses, and helps mitigate production incidents:
+BlackBox's memory layer serves an incident agent that triages, diagnoses, and
+helps mitigate production incidents:
 - **Recalls institutional memory at scale** — "have we seen this before?" —
   semantic search over a 3,500+ incident corpus via CockroachDB's distributed
   vector index (~140ms top-5 on the local rig; ~1-2s cross-region on managed Cloud).
-- **Learns** — every resolution is automatically distilled into a new runbook
-  (procedural memory). The next similar incident recalls the fix the agent
-  just learned. Memory that compounds, not a chat log.
+- **Learns, with hygiene** — every resolution is distilled toward procedural
+  memory, but must pass a write gate first: content filtering (no questions,
+  no uncertainty, no failure narrations), consolidation into existing
+  knowledge instead of duplication, contradiction detection (disagreeing fixes
+  enter on probation at lower confidence), reinforcement when a recalled
+  runbook feeds a real resolution, and decay/archival for knowledge that never
+  earns trust. Every decision is logged to an auditable hygiene ledger you can
+  watch live in the console. Memory that compounds — and self-corrects.
 - **Reasons and acts** through a tool-using loop: recall → hypothesize →
   inspect the live cluster → open an incident → track state → resolve.
 - **Survives region failure — for real.** Our demo kills every node in the

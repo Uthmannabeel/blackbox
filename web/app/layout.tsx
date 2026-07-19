@@ -2,14 +2,14 @@ import type { Metadata } from "next";
 import "./globals.css";
 
 export const metadata: Metadata = {
-  title: "BlackBox — incident memory that survives the outage",
+  title: "BlackBox — agent memory that survives the outage",
   description:
-    "An SRE incident-response agent whose memory stays available, consistent, and region-pinned on CockroachDB — so when a region fails mid-incident, the agent keeps remembering.",
+    "Survivable, hygienic agentic memory on CockroachDB — available through region failure, strongly consistent, region-pinned, and self-auditing. Demonstrated by an incident-response agent that keeps remembering mid-outage.",
   metadataBase: new URL("https://blackbox-web-eight.vercel.app"),
   openGraph: {
-    title: "BlackBox — incident memory that survives the outage",
+    title: "BlackBox — agent memory that survives the outage",
     description:
-      "An SRE agent with globally-distributed, survivable memory on CockroachDB + AWS Bedrock.",
+      "Survivable, self-auditing agentic memory on CockroachDB + AWS Bedrock, demonstrated under a live region failure.",
     type: "website",
   },
 };

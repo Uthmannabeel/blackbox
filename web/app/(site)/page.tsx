@@ -12,12 +12,13 @@ export default function Home() {
         <div className="wrap hero-grid">
           <div>
             <div className="eyebrow">CockroachDB &times; AWS — agentic memory</div>
-            <h1 style={{ marginTop: 16 }}>Incident memory that survives the outage.</h1>
+            <h1 style={{ marginTop: 16 }}>Agent memory that survives the outage.</h1>
             <p className="lede">
-              BlackBox is an SRE incident-response agent. Every incident, runbook, and decision it
-              records lives in CockroachDB — globally distributed, strongly consistent, pinned to its
-              home region. When a region fails mid-incident, the agent keeps recalling and keeps
-              reasoning.
+              BlackBox is agentic-memory infrastructure with two properties most agent memories
+              lack: it survives a full region failure, and it audits what it lets itself remember —
+              every learned fix is gated, deduplicated, and confidence-scored before it can shape
+              recall. We prove both with an incident-response agent working a live outage on
+              CockroachDB.
             </p>
             <div className="hero-cta">
               <Link href="/console" className="btn btn-primary">
@@ -59,11 +60,11 @@ export default function Home() {
             <div className="eyebrow">Capabilities</div>
             <h2>Agent memory is a distributed-systems problem.</h2>
             <p>
-              An incident copilot is only trustworthy if its memory is available during a failure,
-              consistent across regions, and compliant with where data may live. Bolt a vector store
-              onto a cache onto a state store and none of that holds when a region goes dark.
-              BlackBox runs Claude via Amazon Bedrock over one system of record — and everything
-              below reads from the production cluster.
+              An agent&apos;s memory is only trustworthy if it is available during a failure,
+              consistent across regions, compliant with where data may live — and honest about what
+              it lets itself remember. Bolt a vector store onto a cache onto a state store and none
+              of that holds when a region goes dark. BlackBox runs Claude via Amazon Bedrock over
+              one system of record — and everything below reads from the production cluster.
             </p>
           </div>
           <CapabilityBento />

@@ -61,8 +61,9 @@ export default function Product() {
             <div className="eyebrow">Memory model</div>
             <h2>Four memory surfaces, one database.</h2>
             <p>
-              The three classic agent memory types plus transactional live state, each a table in
-              CockroachDB, each <code style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>REGIONAL BY ROW</code>.
+              The full CoALA taxonomy — episodic, procedural/semantic, and working memory — plus
+              transactional live state, each a table in CockroachDB, each{" "}
+              <code style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>REGIONAL BY ROW</code>.
             </p>
           </div>
           <div className="grid grid-2">
@@ -72,9 +73,13 @@ export default function Product() {
               <p>What happened, when, and how it was resolved. Embedded with Titan v2 for semantic recall over the whole fleet.</p>
             </div>
             <div className="card">
-              <div className="k">Procedural</div>
+              <div className="k">Procedural / semantic</div>
               <h3>runbooks</h3>
-              <p>How to fix classes of problem. New runbooks are distilled automatically when incidents resolve.</p>
+              <p>
+                How to fix classes of problem. Distilled fixes enter through a hygiene gate —
+                filtered, deduplicated, contradiction-checked, and confidence-scored — never
+                appended blindly.
+              </p>
             </div>
             <div className="card">
               <div className="k">Working / long-term</div>
@@ -97,13 +102,22 @@ export default function Product() {
             <div className="eyebrow">Beyond retrieval</div>
             <h2>What makes it agentic, not a RAG demo.</h2>
           </div>
-          <div className="grid grid-3">
+          <div className="grid grid-2">
             <div className="card">
               <div className="k">Learning loop</div>
               <h3>It compounds</h3>
               <p>
                 Resolve an incident and the fix becomes a runbook. Throw a similar incident minutes
                 later and the agent recalls exactly what worked — memory that grows, not a transcript.
+              </p>
+            </div>
+            <div className="card">
+              <div className="k">Memory hygiene</div>
+              <h3>It audits its own writes</h3>
+              <p>
+                One bad write can poison a self-improving memory. Learned fixes pass a gate —
+                content filter, duplicate consolidation, contradiction check — then earn confidence
+                through reinforcement or decay out. Every decision lands in an auditable ledger.
               </p>
             </div>
             <div className="card">
