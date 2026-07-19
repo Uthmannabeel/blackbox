@@ -20,16 +20,11 @@ macOS/Linux: see the official install docs (`brew install cockroachdb/tap/ccloud
 
 ## Auth
 
-Either interactive (`ccloud auth login`, opens a browser) or non-interactive via
-a service-account API key:
-
-```powershell
-$env:CCLOUD_API_KEY = "<service account API key>"
-```
-
-The repo's `.env` already holds a service-account key (`CRDB_MCP_API_KEY`,
-Cluster Operator role) used for the Managed MCP Server; `cluster-info.ps1`
-reuses it.
+Interactive only: `ccloud auth login` (press ENTER at the prompt, then complete
+the browser OAuth flow). Verified on ccloud 0.8.23 — the CLI does **not** accept
+service-account API keys; those authenticate the Cloud API and the Managed MCP
+Server, not ccloud. Run the login once from a real terminal; the session persists
+and `cluster-info.ps1` / non-interactive scripts work from then on.
 
 ## Usage in this project
 
