@@ -5,7 +5,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { ThemeToggle } from "../components/ThemeToggle";
 import { RegionMap } from "../components/RegionMap";
 
-interface Evidence { kind: string; id: string; title: string; region: string; distance: number }
+interface Evidence {
+  kind: string; id: string; title: string; region: string; distance: number;
+  sourceCompany?: string; sourceUrl?: string;
+}
 
 type Turn =
   | { role: "user"; text: string }
@@ -309,7 +312,17 @@ export default function Console() {
                       {t.evidence.map((e, j) => (
                         <div className="ledger-row" key={`${e.id}-${j}`}>
                           <span className="ln">[{j + 1}]</span>
-                          <span className="lt">{e.title}</span>
+                          <span className="lt">
+                            {e.title}
+                            {e.sourceUrl && e.sourceUrl.startsWith("https://") && (
+                              <>
+                                {" "}
+                                <a className="lsrc" href={e.sourceUrl} target="_blank" rel="noopener noreferrer">
+                                  public postmortem ↗
+                                </a>
+                              </>
+                            )}
+                          </span>
                           <span className="lm">
                             {e.kind} · {e.region} · dist {e.distance.toFixed(2)}
                           </span>

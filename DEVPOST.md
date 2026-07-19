@@ -50,6 +50,11 @@ helps mitigate production incidents:
 - **Recalls institutional memory at scale** — "have we seen this before?" —
   semantic search over a 3,500+ incident corpus via CockroachDB's distributed
   vector index (~140ms top-5 on the local rig; ~1-2s cross-region on managed Cloud).
+  The episodic store isn't purely synthetic: it includes **25 real public
+  postmortems** (GitLab 2017, AWS S3 2017, Cloudflare's regex outage, GitHub's
+  2018 split-brain, Meta's BGP withdrawal, Roblox's 73-hour Consul outage,
+  Knight Capital…), each provenance-linked — when one is recalled, the evidence
+  ledger links straight to the first-party incident report.
 - **Learns, with hygiene** — every resolution is distilled toward procedural
   memory, but must pass a write gate first: content filtering (no questions,
   no uncertainty, no failure narrations), consolidation into existing

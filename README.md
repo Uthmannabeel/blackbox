@@ -70,7 +70,7 @@ stitching a vector DB to a state store to a cache.
 
 ## Required tooling used
 
-**CockroachDB (using 2 of the required tools; 2 required):**
+**CockroachDB (using 3 of the 4 enumerated tools; 2 required):**
 - **Distributed Vector Indexing** -- semantic memory over incidents, runbooks, and the agent's thought stream (`db/schema.sql`).
 - **Cloud Managed MCP Server** -- the agent introspects the live cluster it operates (schema, health, running queries) as a tool during reasoning.
 - **Agent Skills Repo** -- `diagnose_memory` executes the official `reviewing-cluster-health` skill (Standard-tier checks) from [cockroachlabs/cockroachdb-skills](https://github.com/cockroachlabs/cockroachdb-skills) against its own memory cluster, citing the skill in its diagnosis (vendored with provenance in `skills/cockroachdb/`).
@@ -87,7 +87,12 @@ stitching a vector DB to a state store to a cache.
 BlackBox implements the three classic memory types an agent needs, each backed by
 a CockroachDB table (see `db/schema.sql`):
 
-- **Episodic** -- `incidents`: what happened, when, how it was resolved.
+- **Episodic** -- `incidents`: what happened, when, how it was resolved. Includes
+  **25 real public postmortems** (GitLab 2017, AWS S3 2017, Cloudflare's regex
+  outage, GitHub's 2018 split-brain, Meta's BGP withdrawal, Roblox's 73-hour
+  Consul outage, Knight Capital, and more), ingested with first-party source
+  links (`npm run db:ingest-postmortems`); when one is recalled, the console's
+  evidence ledger links to the original incident report.
 - **Semantic / procedural** -- `runbooks`: how to fix classes of problem.
 - **Working + long-term stream** -- `agent_memory`: the agent's observations,
   actions, and reflections, importance-weighted for recall.

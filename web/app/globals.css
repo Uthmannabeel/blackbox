@@ -398,6 +398,8 @@ footer { border-top: 1px solid var(--border); padding: 46px 0 40px; color: var(-
 .ledger .ln { font-family: var(--font-mono); color: var(--accent-ink); }
 .ledger .lt { color: var(--ink); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .ledger .lm { font-family: var(--font-mono); font-size: 10.5px; color: var(--muted); white-space: nowrap; }
+.ledger .lsrc { font-family: var(--font-mono); font-size: 10.5px; color: var(--accent-ink); text-decoration: none; border-bottom: 1px solid var(--border); }
+.ledger .lsrc:hover { border-bottom-color: var(--accent-ink); }
 
 /* memory time-travel */
 .tt-readout { display: flex; align-items: baseline; gap: 10px; margin-bottom: 14px; }

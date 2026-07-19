@@ -1,6 +1,7 @@
 import {
   clusterHealth,
   isMock,
+  publicPostmortemSource,
   standardTierHealthCheck,
   type IMemoryService,
 } from "@blackbox/memory";
@@ -23,6 +24,9 @@ export interface Evidence {
   title: string;
   region: string;
   distance: number;
+  /** Set when the memory is an ingested real-world public postmortem. */
+  sourceCompany?: string;
+  sourceUrl?: string;
 }
 
 export interface ToolContext {
@@ -59,15 +63,26 @@ export function buildTools(ctx: ToolContext): AgentTool[] {
       handler: async (input) => {
         const hits = await ctx.memory.recallSimilarIncidents(input.situation, input.limit ?? 5);
         for (const h of hits) {
-          ctx.evidence.push({ kind: "incident", id: h.item.id, title: h.item.title, region: h.item.region, distance: h.distance });
+          const src = publicPostmortemSource(h.item.signals);
+          ctx.evidence.push({
+            kind: "incident",
+            id: h.item.id,
+            title: h.item.title,
+            region: h.item.region,
+            distance: h.distance,
+            ...(src ? { sourceCompany: src.company, sourceUrl: src.url } : {}),
+          });
         }
         if (hits.length === 0) return "No similar past incidents found.";
         return hits
-          .map(
-            (h, i) =>
+          .map((h, i) => {
+            const src = publicPostmortemSource(h.item.signals);
+            const cite = src ? `\n  Public postmortem (${src.company}): ${src.url}` : "";
+            return (
               `#${i + 1} (distance ${h.distance.toFixed(3)}, region ${h.item.region}) ` +
-              `[${h.item.severity}] ${h.item.title}\n  Summary: ${h.item.summary}\n  Resolution: ${h.item.resolution}`,
-          )
+              `[${h.item.severity}] ${h.item.title}\n  Summary: ${h.item.summary}\n  Resolution: ${h.item.resolution}${cite}`
+            );
+          })
           .join("\n\n");
       },
     },
