@@ -194,21 +194,26 @@ CREATE TABLE incidents (
             <div className="eyebrow">Production readiness</div>
             <h2>Built like it will be operated.</h2>
           </div>
-          <div className="grid grid-3">
+          <div className="grid grid-2">
             <div className="card">
               <div className="k">Security</div>
               <h3>Guarded by default</h3>
-              <p>Read-only, statement-checked MCP access; parameterised SQL throughout; TLS to the cluster; least-privilege SQL user.</p>
+              <p>Read-only, statement-checked MCP access; parameterised SQL throughout; TLS to the cluster; least-privilege SQL user; CSP and HSTS on every response; no error internals leak to clients.</p>
+            </div>
+            <div className="card">
+              <div className="k">Access control</div>
+              <h3>Least privilege, twice over</h3>
+              <p>The MCP service account holds only the read-only role it needs; the Bedrock IAM policy is scoped to InvokeModel on two models. Durable rate limiting rides the database itself — per-client windows survive serverless instance churn.</p>
             </div>
             <div className="card">
               <div className="k">Reliability</div>
-              <h3>Fails soft</h3>
-              <p>Exponential backoff on embedding throttles; idempotent writes; the agent is stateless — all durable state lives in CockroachDB.</p>
+              <h3>Fails soft, never silently</h3>
+              <p>Exponential backoff on embedding throttles; idempotent writes; the agent is stateless — all durable state lives in CockroachDB. If a memory write fails, the response says so: degraded memory is surfaced, not swallowed.</p>
             </div>
             <div className="card">
               <div className="k">Observability</div>
               <h3>Every action is an event</h3>
-              <p>Each tool call and result is inspectable; every memory is queryable; a real test suite covers recall, the loop, and rate limiting.</p>
+              <p>Each tool call and result is inspectable; every memory is queryable; every memory-write decision lands in an auditable hygiene ledger; a real test suite covers recall, the gate, the loop, and rate limiting.</p>
             </div>
           </div>
           <div style={{ marginTop: 28 }}>

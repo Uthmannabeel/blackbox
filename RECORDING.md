@@ -7,13 +7,13 @@ Everything you need to film the <3-minute demo cleanly. Pair with `VIDEO.md`
 
 ## 0. Decide the recording mode
 
-| Mode | Act III (survive) shows | Effort | Recommended |
+| Mode | Act II (survive) shows | Effort | Recommended |
 |---|---|---|---|
 | **A — Live cloud site** | The **simulated** failure drill (a live exclusion query proving surviving regions answer) | Zero setup | For a clean, low-risk take |
 | **B — Local chaos rig** | A **real** node-kill (region genuinely goes dark) | ~10 min setup | For the strongest "survive" moment |
 
-You can film Acts I, II, IV, V on the live site and splice a Mode-B clip for
-Act III. Never imply a real node-kill you didn't perform — the script wording
+You can film Acts I, III, IV, V on the live site and splice a Mode-B clip for
+Act II. Never imply a real node-kill you didn't perform — the script wording
 already handles the simulated case.
 
 ---
@@ -63,22 +63,23 @@ live makes the delta bigger.)
 1. Click the suggested incident link (checkout-api p99 latency…).
 2. Let the trace fire; when the reply lands, point at the **evidence ledger** (numbered, region, distance).
 
-**Act II — Learn**
-3. Click the chip *"We raised the pool size — mark it resolved."*
-4. Point at the resolve trace ("distilling runbook") and the new reflection in the memory stream.
+**Act II — Survive MID-INVESTIGATION (do NOT resolve first)**
+3. The incident from Act I is open — show the **incident card** (phase, hypotheses, next steps) and the **region topology** (primary ringed).
+4. Trigger the drill: Mode A → click **failure drill: down a region**; Mode B → in the rig terminal drain the primary region's nodes.
+5. Send *"Still there? What's our next step on checkout-api?"* → same investigation continues; evidence ledger renders (incl. dead-region rows); incident state still updates.
+6. Click the chip *"Is your memory OK? Diagnose it."* → self-diagnosis cites the **reviewing-cluster-health Agent Skill** checks + region down, memory intact.
+7. Restore.
 
-**Act III — Survive**
-5. Show the **region topology** (three nodes, primary ringed).
-6. Trigger the drill: Mode A → click **failure drill: down a region**; Mode B → in the rig terminal drain the primary region's nodes.
-7. Click the chip *"Is your memory OK? Diagnose it."* → read the self-diagnosis (region down, memory intact).
-8. Restore.
+**Act III — Learn, through the hygiene gate**
+8. Click the chip *"We raised the pool size — mark it resolved."*
+9. Point at the resolve trace, then the **memory hygiene panel**: the gate decision (consolidated/accepted) and the reinforcement of recalled runbooks land live.
 
 **Act IV — Time-travel**
-9. Drag the **memory time-travel** slider from *now* toward *10 min ago*; the count drops as recent memories fall outside the snapshot.
+10. Drag the **memory time-travel** slider from *now* toward *10 min ago*; the count drops as recent memories fall outside the snapshot.
 
 **Act V — Close**
-10. Switch to the **Architecture** tab: spec table → diagram → residency proof (3s).
-11. End on repo + live URL.
+11. Switch to the **Architecture** tab: spec table → diagram → residency proof (3s).
+12. End on repo + live URL.
 
 ---
 
@@ -93,7 +94,11 @@ live makes the delta bigger.)
 - [ ] Public repo, Apache-2.0 — github.com/Uthmannabeel/blackbox
 - [ ] Live demo URL — blackbox-web-eight.vercel.app
 - [ ] Video link in Devpost + README
-- [ ] Docs name the tools (Distributed Vector Indexing + Managed MCP Server; Bedrock)
+- [ ] Docs name the tools (Distributed Vector Indexing + Managed MCP Server + Agent Skills Repo; Bedrock)
+- [ ] ccloud CLI (4th tool): whitelist `infra\ccloud\bin\ccloud.exe` in Norton
+      (Settings → Antivirus → Scans and Risks → Exclusions), run
+      `.\infra\ccloud\cluster-info.ps1`, then add ccloud to the DEVPOST tools list
 - [ ] Least-privilege applied (IAM `iam-bedrock-policy.json`; MCP acct → Cluster Operator)
 - [ ] Architecture diagram attached / linked
 - [ ] `FEEDBACK.md` linked (tool feedback — bonus with the judges)
+- [ ] Re-check the Devpost project gallery weekly for the competitor field
