@@ -20,3 +20,6 @@ infra/chaos/bin/
 
 # local screenshot review artifacts
 shots/
+
+# ccloud CLI binary (downloaded; see infra/ccloud/README.md)
+infra/ccloud/bin/
