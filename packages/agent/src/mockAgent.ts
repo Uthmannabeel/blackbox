@@ -93,7 +93,10 @@ export class MockAgent implements Agent {
       await this.memory.resolveIncident(id, resolution);
       const incident = await this.memory.getIncident(id);
       const title = incident?.title ?? "untitled incident";
-      await this.memory.upsertRunbook({
+      // Same gated learning loop as the real agent: the hygiene layer decides
+      // whether the distilled fix is committed, consolidated, or rejected.
+      const outcome = await this.memory.commitLearnedRunbook({
+        incidentId: id,
         title: `Learned runbook: ${title}`,
         body: `Distilled from incident ${id}:\n${resolution}`,
         tags: ["learned", "auto-postmortem"],
@@ -108,13 +111,17 @@ export class MockAgent implements Agent {
       events.push({
         type: "tool_result",
         tool: "resolve_incident",
-        result: `resolved ${id}; learned runbook distilled`,
+        result: `resolved ${id}; hygiene gate: ${outcome.action} — ${outcome.detail}`,
       });
       this._incidentId = null;
-      const reply =
-        `✅ **Incident resolved** and committed to episodic memory.\n\n` +
-        `📚 **Learning loop:** I distilled the fix into a new runbook — *"Learned runbook: ${title}"*. ` +
-        `The next time something similar happens, I'll recall exactly what fixed it this time.`;
+      const learnLine =
+        outcome.action === "merged"
+          ? `📚 **Learning loop:** this fix matched knowledge I already hold — the hygiene layer consolidated it into the existing runbook instead of duplicating it.`
+          : outcome.action === "rejected"
+            ? `🧹 **Hygiene gate:** the distilled fix was rejected (${outcome.detail}) — nothing was committed to procedural memory.`
+            : `📚 **Learning loop:** the fix passed the hygiene gate and became *"Learned runbook: ${title}"*. ` +
+              `The next time something similar happens, I'll recall exactly what fixed it this time.`;
+      const reply = `✅ **Incident resolved** and committed to episodic memory.\n\n${learnLine}`;
       await this.memory.remember({
         sessionId: this.sessionId,
         kind: "agent_msg",

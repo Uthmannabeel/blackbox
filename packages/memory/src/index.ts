@@ -13,6 +13,14 @@ export type { RegionHealth, ClusterHealth } from "./clusterHealth.js";
 export { snapshotAsOf, residencyProof } from "./timeTravel.js";
 export type { MemorySnapshot, ResidencyProof } from "./timeTravel.js";
 export { hitRateLimit } from "./rateLimit.js";
+export {
+  CONFIDENCE,
+  DUPLICATE_DISTANCE,
+  CONTRADICTION_DISTANCE,
+  gateRunbookContent,
+  tokenOverlap,
+  classifyLearnedWrite,
+} from "./hygiene.js";
 export type { RateResult } from "./rateLimit.js";
 export * from "./types.js";
 

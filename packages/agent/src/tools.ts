@@ -218,16 +218,26 @@ export function buildTools(ctx: ToolContext): AgentTool[] {
         const resolution = String(input.resolution);
         await ctx.memory.resolveIncident(id, resolution);
 
-        // THE LEARNING LOOP: every resolution becomes procedural memory. The
-        // next similar incident recalls not just "we saw this" (episodic) but
-        // "here is the fix we learned" (runbook) — memory that compounds.
+        // THE LEARNING LOOP, gated: the distilled fix must pass the memory
+        // hygiene layer (content gate, duplicate consolidation, contradiction
+        // check) before it can influence future recall. An unfiltered write
+        // path is how self-improving memories poison themselves.
         const incident = await ctx.memory.getIncident(id);
         const title = incident?.title ?? "untitled incident";
-        await ctx.memory.upsertRunbook({
+        const outcome = await ctx.memory.commitLearnedRunbook({
+          incidentId: id,
           title: `Learned runbook: ${title}`,
           body: `Distilled from incident ${id} (${new Date().toISOString().slice(0, 10)}):\n${resolution}`,
           tags: ["learned", "auto-postmortem"],
         });
+
+        // Positive feedback: runbooks recalled during this investigation
+        // contributed to a real resolution — they earn confidence.
+        const recalledRunbooks = [
+          ...new Set(ctx.evidence.filter((e) => e.kind === "runbook").map((e) => e.id)),
+        ];
+        const reinforced = await ctx.memory.reinforceRunbooks(recalledRunbooks);
+
         await ctx.memory.remember({
           sessionId: ctx.sessionId,
           incidentId: id,
@@ -236,10 +246,19 @@ export function buildTools(ctx: ToolContext): AgentTool[] {
           importance: 0.9,
         });
 
-        return (
-          `Incident ${id} resolved and committed to episodic memory. ` +
-          `A learned runbook was distilled from the resolution — future similar incidents will recall this fix.`
-        );
+        const learnLine =
+          outcome.action === "merged"
+            ? `The fix matched existing knowledge — hygiene layer consolidated it (${outcome.detail}).`
+            : outcome.action === "rejected"
+              ? `The distilled fix did NOT pass the memory hygiene gate (${outcome.detail}); nothing was committed to procedural memory.`
+              : outcome.contradictsId
+                ? `A learned runbook was committed on probation — it contradicts existing knowledge (${outcome.detail}).`
+                : `A learned runbook passed the hygiene gate and was committed — future similar incidents will recall this fix.`;
+        const reinforceLine =
+          reinforced > 0
+            ? ` ${reinforced} runbook(s) recalled during this incident were reinforced.`
+            : "";
+        return `Incident ${id} resolved and committed to episodic memory. ${learnLine}${reinforceLine}`;
       },
     },
   ];

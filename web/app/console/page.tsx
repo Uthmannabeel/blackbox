@@ -21,6 +21,7 @@ interface IncidentInfo {
   state: { phase: string; hypotheses: string[]; nextSteps: string[] } | null;
 }
 interface Stats { totalMemories: number; recallMs: number | null; regionsLive: number; regionsTotal: number }
+interface HygieneEvent { id: string; action: string; detail: string; createdAt: string }
 
 // After a real node drain, wait for the cluster to settle before re-reading
 // topology (gossip liveness lags the actual shutdown by a few seconds).
@@ -79,6 +80,17 @@ const KIND_LABELS: Record<string, string> = {
   reflection: "reflection",
 };
 
+/** Write-path decisions, labeled for operators. */
+const HYGIENE_LABELS: Record<string, string> = {
+  accepted: "accepted",
+  rejected: "rejected",
+  merged: "consolidated",
+  contradiction: "contradiction",
+  reinforced: "reinforced",
+  archived: "archived",
+  decayed: "decayed",
+};
+
 export default function Console() {
   const [sessionId] = useState(() => crypto.randomUUID());
   const [turns, setTurns] = useState<Turn[]>([]);
@@ -86,6 +98,7 @@ export default function Console() {
   const [busy, setBusy] = useState(false);
   const [incidentInfo, setIncidentInfo] = useState<IncidentInfo | null>(null);
   const [memories, setMemories] = useState<MemoryRow[]>([]);
+  const [hygiene, setHygiene] = useState<HygieneEvent[]>([]);
   const [stats, setStats] = useState<Stats | null>(null);
   const [timeSeconds, setTimeSeconds] = useState(0);
   const [snapshot, setSnapshot] = useState<{ total: number | null; sample: MemoryRow[] }>({ total: null, sample: [] });
@@ -117,6 +130,7 @@ export default function Console() {
   }, []);
   const refreshMemories = useCallback(async () => {
     try { setMemories((await (await fetch("/api/memory?limit=14")).json()).memories ?? []); } catch { /* keep */ }
+    try { setHygiene((await (await fetch("/api/hygiene")).json()).events ?? []); } catch { /* keep */ }
   }, []);
   const refreshStats = useCallback(async () => {
     try { setStats(await (await fetch("/api/stats")).json()); } catch { /* keep */ }
@@ -458,6 +472,26 @@ export default function Console() {
                     <span className="mem-kind">{KIND_LABELS[m.kind] ?? m.kind}</span>
                     <span className="mem-content">{clean(m.content)}</span>
                     <span className="region-badge">{m.region.replace("aws-", "")}</span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+
+          <div className="panel">
+            <h2>Memory hygiene — the gated write path</h2>
+            <div className="body memfeed">
+              {hygiene.length === 0 ? (
+                <div className="hint">
+                  Every learned fix passes a write gate before it can influence recall:
+                  content filtering, duplicate consolidation, contradiction checks, and
+                  decay for knowledge that never earns trust. Decisions appear here.
+                </div>
+              ) : (
+                hygiene.map((e) => (
+                  <div className="mem-item" key={e.id}>
+                    <span className={`mem-kind hyg-${e.action}`}>{HYGIENE_LABELS[e.action] ?? e.action}</span>
+                    <span className="mem-content">{e.detail}</span>
                   </div>
                 ))
               )}

@@ -373,6 +373,11 @@ footer { border-top: 1px solid var(--border); padding: 46px 0 40px; color: var(-
 .mem-content { flex: 1; color: var(--ink-2); display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }
 .region-badge { flex: none; font-family: var(--font-mono); font-size: 10px; color: var(--muted); border: 1px solid var(--border); padding: 1px 6px; border-radius: 10px; }
 
+/* memory hygiene write-path decisions: semantic color per outcome */
+.mem-kind.hyg-rejected, .mem-kind.hyg-contradiction { color: var(--down); }
+.mem-kind.hyg-merged, .mem-kind.hyg-accepted, .mem-kind.hyg-reinforced { color: var(--ok); }
+.mem-kind.hyg-archived, .mem-kind.hyg-decayed { color: var(--muted); }
+
 /* live region topology (dark instrument surface) */
 .regionmap { margin-bottom: 14px; background: var(--recorder); border: 1px solid var(--recorder-line); border-radius: var(--radius); padding: 6px 8px; }
 .rm-link { stroke: var(--recorder-line); stroke-width: 1.5; stroke-dasharray: 4 5; animation: rmdash 3s linear infinite; }

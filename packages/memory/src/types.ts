@@ -34,12 +34,53 @@ export interface Incident {
   resolvedAt: string | null;
 }
 
+export type RunbookSource = "curated" | "learned";
+export type RunbookStatus = "active" | "archived";
+
 export interface Runbook {
   id: string;
   title: string;
   body: string;
   tags: string[];
   region: string;
+  /** Where this runbook came from: human-curated or distilled by the agent. */
+  source: RunbookSource;
+  /** Archived runbooks are invisible to recall (decayed out, never deleted). */
+  status: RunbookStatus;
+  /** 0..1 — provisional learned knowledge starts low and earns trust. */
+  confidence: number;
+  recallCount: number;
+  reinforcedCount: number;
+  lastRecalledAt: string | null;
+}
+
+/** A memory-write-path decision recorded by the hygiene layer. */
+export type HygieneAction =
+  | "accepted"
+  | "rejected"
+  | "merged"
+  | "contradiction"
+  | "reinforced"
+  | "archived"
+  | "decayed";
+
+export interface HygieneEvent {
+  id: string;
+  action: HygieneAction;
+  targetKind: "runbook" | "memory";
+  targetId: string | null;
+  detail: string;
+  createdAt: string;
+}
+
+/** Outcome of committing a learned runbook through the hygiene gate. */
+export interface LearnOutcome {
+  action: "accepted" | "merged" | "rejected";
+  /** The runbook that now carries this knowledge (absent when rejected). */
+  runbookId?: string;
+  /** Set when the new knowledge disagrees with an existing similar runbook. */
+  contradictsId?: string;
+  detail: string;
 }
 
 export interface MemoryItem {
@@ -90,6 +131,24 @@ export interface IMemoryService {
   recallSimilarIncidents(situation: string, limit?: number): Promise<RecallHit<Incident>[]>;
   upsertRunbook(input: { title: string; body: string; tags?: string[] }): Promise<Runbook>;
   recallRunbooks(situation: string, limit?: number): Promise<RecallHit<Runbook>[]>;
+  /**
+   * The learning loop's ONLY entry point for agent-distilled runbooks.
+   * Unlike upsertRunbook (curated content), this runs the hygiene gate:
+   * content filtering, near-duplicate consolidation, and contradiction
+   * detection — and records every decision as a hygiene event.
+   */
+  commitLearnedRunbook(input: {
+    incidentId: string;
+    title: string;
+    body: string;
+    tags?: string[];
+  }): Promise<LearnOutcome>;
+  /** Positive feedback: these runbooks were recalled and the incident resolved. */
+  reinforceRunbooks(runbookIds: string[]): Promise<number>;
+  /** Maintenance: decay unused learned knowledge; archive what never earned trust. */
+  decayRunbooks(): Promise<{ decayed: number; archived: number }>;
+  /** Recent write-path decisions, for the console's hygiene feed. */
+  recentHygieneEvents(limit?: number): Promise<HygieneEvent[]>;
   remember(input: {
     sessionId: string;
     incidentId?: string | null;

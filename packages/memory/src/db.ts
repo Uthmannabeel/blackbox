@@ -10,6 +10,11 @@ import "./env.js";
  */
 let pool: Pool | undefined;
 
+function envInt(name: string, fallback: number): number {
+  const v = Number(process.env[name]);
+  return Number.isFinite(v) && v > 0 ? Math.floor(v) : fallback;
+}
+
 export function getPool(): Pool {
   if (pool) return pool;
 
@@ -26,7 +31,9 @@ export function getPool(): Pool {
     max: 3,
     idleTimeoutMillis: 30_000,
     // Fail fast instead of hanging on connect when a region is partitioned.
-    connectionTimeoutMillis: 5_000,
+    // Overridable for environments behind slow TLS-intercepting proxies where
+    // the handshake alone can take tens of seconds (local ops scripts).
+    connectionTimeoutMillis: envInt("DB_CONNECT_TIMEOUT_MS", 5_000),
     keepAlive: true,
     // Let a frozen/idle serverless instance release its connections cleanly.
     allowExitOnIdle: true,

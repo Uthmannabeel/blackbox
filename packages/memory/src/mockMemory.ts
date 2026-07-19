@@ -1,11 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { embed } from "./embeddings.js";
+import { CONFIDENCE, classifyLearnedWrite, gateRunbookContent } from "./hygiene.js";
 import { HISTORICAL_INCIDENTS, RUNBOOKS, SERVICES } from "./seedData.js";
 import type {
+  HygieneAction,
+  HygieneEvent,
   IMemoryService,
   Incident,
   IncidentPhase,
   IncidentStateRecord,
+  LearnOutcome,
   MemoryItem,
   MemoryKind,
   RecallHit,
@@ -19,6 +23,18 @@ const REGIONS = ["aws-us-east-1", "aws-eu-west-1", "aws-ap-south-1"];
 interface Vec<T> {
   row: T;
   embedding: number[];
+}
+
+/** Fresh hygiene fields for a new runbook row. */
+function defaultHygiene(source: "curated" | "learned") {
+  return {
+    source,
+    status: "active" as const,
+    confidence: source === "curated" ? 0.6 : CONFIDENCE.learned,
+    recallCount: 0,
+    reinforcedCount: 0,
+    lastRecalledAt: null,
+  };
 }
 
 /** L2 distance between unit vectors (matches the real service's `<->`). */
@@ -42,6 +58,7 @@ export class MockMemoryService implements IMemoryService {
   private memories: Vec<MemoryItem>[] = [];
   private states = new Map<string, IncidentStateRecord>();
   private services: Service[] = [];
+  private hygieneEvents: HygieneEvent[] = [];
   private seeded: Promise<void>;
   private regionCursor = 0;
 
@@ -96,6 +113,7 @@ export class MockMemoryService implements IMemoryService {
           body: rb.body,
           tags: rb.tags,
           region: this.nextRegion(),
+          ...defaultHygiene("curated"),
         },
       });
     }
@@ -181,6 +199,7 @@ export class MockMemoryService implements IMemoryService {
       body: input.body,
       tags: input.tags ?? [],
       region: this.nextRegion(),
+      ...defaultHygiene("curated"),
     };
     this.runbooks.push({ row, embedding: await embed(`${input.title}\n\n${input.body}`) });
     return row;
@@ -189,10 +208,134 @@ export class MockMemoryService implements IMemoryService {
   async recallRunbooks(situation: string, limit = 3): Promise<RecallHit<Runbook>[]> {
     await this.seeded;
     const q = await embed(situation);
-    return this.runbooks
+    const hits = this.runbooks
+      .filter((r) => r.row.status === "active")
       .map((r) => ({ item: r.row, distance: l2(q, r.embedding) }))
-      .sort((a, b) => a.distance - b.distance)
+      .sort(
+        (a, b) =>
+          a.distance * (1 - 0.2 * (a.item.confidence - 0.5)) -
+          b.distance * (1 - 0.2 * (b.item.confidence - 0.5)),
+      )
       .slice(0, limit);
+    for (const h of hits) {
+      h.item.recallCount++;
+      h.item.lastRecalledAt = new Date().toISOString();
+    }
+    return hits;
+  }
+
+  // ---- Memory hygiene (parity with MemoryService) ---------------------------
+
+  async commitLearnedRunbook(input: {
+    incidentId: string;
+    title: string;
+    body: string;
+    tags?: string[];
+  }): Promise<LearnOutcome> {
+    await this.seeded;
+    const gate = gateRunbookContent(input.body);
+    if (!gate.ok) {
+      this.logHygiene("rejected", null, `write rejected: ${gate.reason} (incident ${input.incidentId})`);
+      return { action: "rejected", detail: gate.reason };
+    }
+
+    const embedding = await embed(`${input.title}\n\n${input.body}`);
+    const active = this.runbooks.filter((r) => r.row.status === "active");
+    const nearest = active
+      .map((r) => ({ r, distance: l2(embedding, r.embedding) }))
+      .sort((a, b) => a.distance - b.distance)[0];
+
+    const decision = classifyLearnedWrite(
+      nearest ? { distance: nearest.distance, body: nearest.r.row.body } : null,
+      input.body,
+    );
+
+    if (decision.kind === "merge" && nearest) {
+      nearest.r.row.reinforcedCount++;
+      nearest.r.row.confidence = Math.min(
+        CONFIDENCE.max,
+        nearest.r.row.confidence + CONFIDENCE.reinforceStep,
+      );
+      const detail = `consolidated into "${nearest.r.row.title}" (distance ${nearest.distance.toFixed(3)}) instead of duplicating`;
+      this.logHygiene("merged", nearest.r.row.id, detail);
+      return { action: "merged", runbookId: nearest.r.row.id, detail };
+    }
+
+    const contradicts = decision.kind === "contradiction" && nearest ? nearest.r.row : null;
+    const row: Runbook = {
+      id: randomUUID(),
+      title: input.title,
+      body: input.body,
+      tags: input.tags ?? [],
+      region: this.nextRegion(),
+      ...defaultHygiene("learned"),
+      confidence: contradicts ? CONFIDENCE.contradicted : CONFIDENCE.learned,
+    };
+    this.runbooks.push({ row, embedding });
+
+    if (contradicts) {
+      const detail =
+        `new fix disagrees with "${contradicts.title}" for a similar situation; ` +
+        `kept both, new one on probation (confidence ${row.confidence})`;
+      this.logHygiene("contradiction", row.id, detail);
+      return { action: "accepted", runbookId: row.id, contradictsId: contradicts.id, detail };
+    }
+    const detail = `learned runbook accepted (confidence ${row.confidence}) from incident ${input.incidentId}`;
+    this.logHygiene("accepted", row.id, detail);
+    return { action: "accepted", runbookId: row.id, detail };
+  }
+
+  async reinforceRunbooks(runbookIds: string[]): Promise<number> {
+    await this.seeded;
+    let count = 0;
+    for (const r of this.runbooks) {
+      if (runbookIds.includes(r.row.id) && r.row.status === "active") {
+        r.row.confidence = Math.min(CONFIDENCE.max, r.row.confidence + CONFIDENCE.reinforceStep);
+        r.row.reinforcedCount++;
+        count++;
+      }
+    }
+    if (count > 0) {
+      this.logHygiene("reinforced", null, `${count} recalled runbook(s) reinforced after successful resolution`);
+    }
+    return count;
+  }
+
+  async decayRunbooks(): Promise<{ decayed: number; archived: number }> {
+    await this.seeded;
+    // The mock has no long-lived clock; decay everything learned and unused.
+    let decayed = 0;
+    let archived = 0;
+    for (const r of this.runbooks) {
+      if (r.row.source !== "learned" || r.row.status !== "active") continue;
+      if (r.row.recallCount === 0 && r.row.reinforcedCount === 0) {
+        r.row.confidence = Math.max(CONFIDENCE.floor, r.row.confidence - CONFIDENCE.decayStep);
+        decayed++;
+        if (r.row.confidence < CONFIDENCE.archiveBelow) {
+          r.row.status = "archived";
+          archived++;
+          this.logHygiene("archived", r.row.id, `"${r.row.title}" archived: never earned trust`);
+        }
+      }
+    }
+    if (decayed > 0) this.logHygiene("decayed", null, `${decayed} unused learned runbook(s) lost confidence`);
+    return { decayed, archived };
+  }
+
+  async recentHygieneEvents(limit = 20): Promise<HygieneEvent[]> {
+    await this.seeded;
+    return this.hygieneEvents.slice(-Math.max(1, Math.min(100, limit))).reverse();
+  }
+
+  private logHygiene(action: HygieneAction, targetId: string | null, detail: string): void {
+    this.hygieneEvents.push({
+      id: randomUUID(),
+      action,
+      targetKind: "runbook",
+      targetId,
+      detail,
+      createdAt: new Date().toISOString(),
+    });
   }
 
   async remember(input: {

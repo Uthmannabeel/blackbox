@@ -86,10 +86,49 @@ CREATE TABLE IF NOT EXISTS runbooks (
     body        STRING NOT NULL,                      -- markdown steps
     tags        STRING[],
     embedding   VECTOR(1024),
+    -- Memory-hygiene columns. Learned runbooks enter provisionally and earn
+    -- (or lose) standing over time; recall ranking weighs confidence, and
+    -- archived rows are invisible to recall. This is what makes the store a
+    -- managed memory, not an append-only log.
+    source           STRING NOT NULL DEFAULT 'curated',  -- curated | learned
+    status           STRING NOT NULL DEFAULT 'active',   -- active | archived
+    confidence       FLOAT  NOT NULL DEFAULT 0.6,        -- 0..1
+    recall_count     INT    NOT NULL DEFAULT 0,
+    reinforced_count INT    NOT NULL DEFAULT 0,
+    last_recalled_at TIMESTAMPTZ,
     updated_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
     crdb_region crdb_internal_region NOT NULL DEFAULT default_to_database_primary_region(gateway_region())::crdb_internal_region,
     CONSTRAINT runbooks_pkey PRIMARY KEY (crdb_region, id),
     VECTOR INDEX runbooks_embedding_idx (crdb_region, embedding)
+) LOCALITY REGIONAL BY ROW;
+
+-- Idempotent upgrades for clusters created before the hygiene columns existed.
+-- Plain ADD COLUMN is safe on REGIONAL BY ROW (the v25.4.0 XX000 bug only
+-- affects post-hoc CREATE INDEX alongside an inline vector index).
+ALTER TABLE runbooks ADD COLUMN IF NOT EXISTS source STRING NOT NULL DEFAULT 'curated';
+ALTER TABLE runbooks ADD COLUMN IF NOT EXISTS status STRING NOT NULL DEFAULT 'active';
+ALTER TABLE runbooks ADD COLUMN IF NOT EXISTS confidence FLOAT NOT NULL DEFAULT 0.6;
+ALTER TABLE runbooks ADD COLUMN IF NOT EXISTS recall_count INT NOT NULL DEFAULT 0;
+ALTER TABLE runbooks ADD COLUMN IF NOT EXISTS reinforced_count INT NOT NULL DEFAULT 0;
+ALTER TABLE runbooks ADD COLUMN IF NOT EXISTS last_recalled_at TIMESTAMPTZ;
+
+-- ---------------------------------------------------------------------------
+-- memory_hygiene_events: the audit trail of the memory write path. Every
+-- learned write is gated, deduplicated, and checked for contradictions before
+-- it can influence future recall; every decision lands here. Surfaced in the
+-- console so the hygiene layer is observable, not claimed.
+-- action = accepted | rejected | merged | contradiction | reinforced | archived | decayed
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS memory_hygiene_events (
+    id          UUID NOT NULL DEFAULT gen_random_uuid(),
+    action      STRING NOT NULL,
+    target_kind STRING NOT NULL,                      -- runbook | memory
+    target_id   UUID,
+    detail      STRING NOT NULL,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    crdb_region crdb_internal_region NOT NULL DEFAULT default_to_database_primary_region(gateway_region())::crdb_internal_region,
+    CONSTRAINT memory_hygiene_events_pkey PRIMARY KEY (crdb_region, id),
+    INDEX hygiene_recent_idx (created_at DESC)
 ) LOCALITY REGIONAL BY ROW;
 
 -- ---------------------------------------------------------------------------
