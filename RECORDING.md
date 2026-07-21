@@ -32,8 +32,9 @@ cd "C:\Users\Nabeel Uthman\cockroach-ai"
 $env:NODE_OPTIONS="--use-system-ca"
 node scripts\preflight.mjs
 ```
-Expect `ALL GREEN — 18 passed`. It also *warms* the demo (opens an incident), so
-time-travel will show a delta. If a page 500s, wait 60s (cold start) and re-run.
+Expect `ALL GREEN — 19 passed` (includes the real-postmortem provenance check).
+It also *warms* the demo (opens an incident), so time-travel will show a delta.
+If a page 500s, wait 60s (cold start) and re-run.
 
 **Screenshot sanity (optional):** `node scripts\shoot.mjs` then eyeball `shots/`.
 
@@ -60,8 +61,12 @@ live makes the delta bigger.)
 ## 4. Click order per act (mirrors VIDEO.md)
 
 **Act I — Recall + receipts (console)**
+0. BEFORE recording, in this same tab: send the database-deletion warm-up
+   question (see VIDEO.md checklist) so its **source ↗** ledger is in the scroll-back.
 1. Click the suggested incident link (checkout-api p99 latency…).
 2. Let the trace fire; when the reply lands, point at the **evidence ledger** (numbered, region, distance).
+2b. Scroll up to the warm-up turn: point at the **source ↗** links (GitLab 2017
+    et al.) — "real public postmortems, provenance-linked", then scroll back down.
 
 **Act II — Survive MID-INVESTIGATION (do NOT resolve first)**
 3. The incident from Act I is open — show the **incident card** (phase, hypotheses, next steps) and the **region topology** (primary ringed).
@@ -95,8 +100,9 @@ live makes the delta bigger.)
 - [ ] Live demo URL — blackbox-web-eight.vercel.app
 - [ ] Video link in Devpost + README
 - [ ] Docs name the tools (Distributed Vector Indexing + Managed MCP Server + Agent Skills Repo; Bedrock)
-- [ ] ccloud CLI (4th tool): whitelist `infra\ccloud\bin\ccloud.exe` in Norton
-      (Settings → Antivirus → Scans and Risks → Exclusions), run
+- [ ] ccloud CLI (4th tool): Norton whitelist DONE — remaining: run
+      `.\infra\ccloud\bin\ccloud.exe auth login` once in a real terminal
+      (ENTER + browser OAuth; no API-key auth exists), then
       `.\infra\ccloud\cluster-info.ps1`, then add ccloud to the DEVPOST tools list
 - [ ] Least-privilege applied (IAM `iam-bedrock-policy.json`; MCP acct → Cluster Operator)
 - [ ] Architecture diagram attached / linked

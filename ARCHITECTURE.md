@@ -67,6 +67,11 @@ A thin, well-typed service over the `pg` driver. Responsibilities:
 - Four memory surfaces: episodic (`incidents`), procedural (`runbooks`),
   the agent's own stream (`agent_memory`), and transactional live state
   (`incident_state`).
+- The episodic store is grounded in the public record: 25 real postmortems
+  (GitLab 2017, AWS S3 2017, Cloudflare, GitHub, Meta, Roblox, Knight
+  Capital…) are ingested with first-party source URLs in `signals`
+  (`packages/memory/src/postmortemData.ts`); recall surfaces the link as
+  provenance in the evidence ledger.
 
 ### 2. Agent loop — `packages/agent`
 A reason ↔ recall ↔ act loop on the Bedrock **Converse API** with tool use:

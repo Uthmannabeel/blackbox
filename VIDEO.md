@@ -38,6 +38,12 @@ renders under it — numbered memories with region and raw distance. Point at it
 > "Every claim is backed by the exact memories it recalled — id, home region,
 > vector distance. Not 'trust me' — provenance."
 
+Scroll briefly to the earlier warm-up turn (sent before recording): the
+database-deletion question whose ledger shows **source ↗** links.
+> "And this memory isn't synthetic: it holds twenty-five real public
+> postmortems. Ask about a deleted production database and it cites GitLab's
+> actual 2017 incident report — that link goes to the original."
+
 ### 0:55–1:50 — Act II: SURVIVE, MID-INVESTIGATION (the money shot)
 The incident from Act I is OPEN and unresolved — hypotheses and next steps live
 in the incident card. That is the point: the kill happens mid-investigation.
@@ -97,6 +103,11 @@ then repo + live URL.
 ## Recording checklist
 - [ ] Pre-seed done; stats strip shows the corpus, 3/3 regions.
 - [ ] Evidence ledger renders (send one incident before recording to warm it).
+- [ ] Warm-up turn for Act I's provenance beat: in the SAME console tab you will
+      record, send *"An engineer accidentally deleted the production database
+      data directory while troubleshooting replication lag. Have we seen
+      anything like this before?"* — its ledger shows the GitLab/Atlassian/
+      GitHub **source ↗** links you'll point at (8s, no on-camera wait).
 - [ ] Act II: the kill happens with the incident OPEN — do not resolve before
       the drill. Rehearse the node drain (~12s); narrate over it; ONE kill cycle.
 - [ ] Managed Cloud can't show raw node-kill — either use the local rig for Act II,

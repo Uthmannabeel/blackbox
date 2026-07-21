@@ -173,6 +173,7 @@ npm install
 cp .env.example .env          # fill in CockroachDB + AWS credentials
 npm run db:schema             # apply db/schema.sql to your cluster
 npm run db:seed               # load sample fleet + historical incidents (embeds via Bedrock)
+npm run db:ingest-postmortems # load 25 real public postmortems (provenance-linked)
 npm run agent:dev             # talk to the agent from the CLI
 npm run dev                   # or use the web dashboard at http://localhost:3000
 ```

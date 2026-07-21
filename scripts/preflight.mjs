@@ -56,6 +56,21 @@ ok((c1.body.evidence || []).length > 0, `evidence ledger: ${(c1.body.evidence ||
 ok(!c1.body.memoryDegraded, `memory writes durable (degraded=${c1.body.memoryDegraded}${c1.body.memoryError ? " · err: " + c1.body.memoryError : ""})`);
 ok(!!c1.body.incidentId, `incident opened: ${c1.body.incidentId}`);
 
+// Beat I addendum: real-postmortem recall with provenance (fresh session so the
+// checkout investigation above can't steer the recall).
+console.log("\nAgent — public-postmortem provenance:");
+const pmSid = randomUUID();
+const c3 = await fetch(BASE + "/api/chat", {
+  method: "POST", headers: { "Content-Type": "application/json" },
+  body: JSON.stringify({
+    sessionId: pmSid,
+    message:
+      "An engineer accidentally deleted the production database data directory while troubleshooting replication lag. Have we seen anything like this before?",
+  }),
+}).then((r) => r.json()).catch(() => ({}));
+const cited = (c3.evidence || []).filter((e) => (e.sourceUrl || "").startsWith("https://"));
+ok(cited.length > 0, `evidence cites ${cited.length} real postmortem(s) (${cited[0]?.sourceCompany ?? "none"})`);
+
 // Beat III: self-diagnosis via MCP
 console.log("\nAgent — self-diagnosis / MCP (Act III):");
 const c2 = await chat("How many incidents are currently stored in your memory? Query the live cluster.");

@@ -18,8 +18,9 @@ A skim, one line each — the rest of this page is the evidence.
   runbooks, a working-memory stream, and transactional live incident state) —
   with a **hygienic write path**: learned knowledge is gated, deduplicated,
   contradiction-checked, confidence-scored, reinforced, and decayed. Vectors
-  *and* strongly-consistent state in one database. Not toy queries, and not
-  an append-only log.
+  *and* strongly-consistent state in one database, grounded in 25 real public
+  postmortems with provenance links. Not toy queries, not synthetic-only data,
+  and not an append-only log.
 - **Technical implementation** — a typed reason/recall/act loop over Bedrock;
   distributed vector index + Managed MCP Server; parameterised SQL,
   statement-validated read-only cluster access, and a real test suite.
