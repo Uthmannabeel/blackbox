@@ -48,12 +48,15 @@ Copy the connection string into `.env` as `DATABASE_URL`.
 ## 2. Enable the Managed MCP Server
 
 In the CockroachDB Cloud Console, enable the **Managed MCP Server** for the
-cluster and create a **service-account API key** (autonomous agent mode).
-Copy the MCP endpoint URL and key into `.env`:
+cluster and create a **service account + API key**, then assign the account the
+**Cluster Operator** role (without it, MCP queries return "unauthorized").
+The endpoint is org-wide — one URL for the whole org, with the target cluster
+passed per call — so `.env` needs the cluster's UUID too:
 
 ```
-CRDB_MCP_URL="https://<cluster>.cockroachlabs.cloud/mcp"
+CRDB_MCP_URL="https://cockroachlabs.cloud/mcp"
 CRDB_MCP_API_KEY="<service-account-api-key>"
+CRDB_MCP_CLUSTER_ID="<cluster-uuid from the console cluster page>"
 ```
 
 The MCP server is read-only by default — exactly what `inspect_cluster` needs.
@@ -64,6 +67,7 @@ The MCP server is read-only by default — exactly what `inspect_cluster` needs.
 npm install
 npm run db:schema
 npm run db:seed
+npm run db:ingest-postmortems   # 25 real public postmortems, provenance-linked
 ```
 
 ## 4. AWS Bedrock
