@@ -91,13 +91,17 @@ helps mitigate production incidents:
   for the stateless agent. An offline mock mode runs the whole UX with no cloud.
 
 ## Which required tools we used
-**CockroachDB (3 of the 4 recognized tools; 2 required):**
+**CockroachDB (4 of 4 recognized tools; 2 required):**
 - Distributed Vector Indexing (regional-by-row semantic memory)
 - Cloud Managed MCP Server (agent introspects the cluster)
 - Agent Skills Repo — the agent's `diagnose_memory` tool executes the official
   `reviewing-cluster-health` skill (v2.0, Standard-tier procedure) against its
   own memory cluster and cites it in the diagnosis; the skill is vendored with
   provenance in `skills/cockroachdb/` (Apache-2.0)
+- ccloud CLI — used to provision and inspect the multi-region cluster
+  (`infra/ccloud/cluster-info.ps1`); verified live against cluster `blackbox`
+  (id `5675ebfa-276c-40cb-87a2-2c334935aeb1`, v26.2.1, regions ap-south-1 /
+  eu-west-1 / us-east-1)
 
 **AWS (1 required; Bedrock is the primary service):**
 - Amazon Bedrock (Claude reasoning + Titan embeddings)

@@ -99,11 +99,10 @@ live makes the delta bigger.)
 - [ ] Public repo, Apache-2.0 — github.com/Uthmannabeel/blackbox
 - [ ] Live demo URL — blackbox-web-eight.vercel.app
 - [ ] Video link in Devpost + README
-- [ ] Docs name the tools (Distributed Vector Indexing + Managed MCP Server + Agent Skills Repo; Bedrock)
-- [ ] ccloud CLI (4th tool): Norton whitelist DONE — remaining: run
-      `.\infra\ccloud\bin\ccloud.exe auth login` once in a real terminal
-      (ENTER + browser OAuth; no API-key auth exists), then
-      `.\infra\ccloud\cluster-info.ps1`, then add ccloud to the DEVPOST tools list
+- [x] Docs name the tools (Distributed Vector Indexing + Managed MCP Server + Agent Skills Repo + ccloud CLI; Bedrock)
+- [x] ccloud CLI (4th tool): auth login done, `cluster-info.ps1` verified live
+      against cluster `blackbox` (v26.2.1, ap-south-1/eu-west-1/us-east-1);
+      added to DEVPOST.md and README.md tools list
 - [ ] Least-privilege applied (IAM `iam-bedrock-policy.json`; MCP acct → Cluster Operator)
 - [ ] Architecture diagram attached / linked
 - [ ] `FEEDBACK.md` linked (tool feedback — bonus with the judges)
