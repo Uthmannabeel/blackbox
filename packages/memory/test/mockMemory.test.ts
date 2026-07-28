@@ -26,15 +26,80 @@ describe("MockMemoryService", () => {
     expect(hits[0]!.item.title.toLowerCase()).toContain("pool");
   });
 
-  test("remembers and recalls from the agent memory stream", async () => {
+  test("remembers and recalls semantic memories", async () => {
     await mem.remember({
       sessionId: "s1",
-      kind: "observation",
+      kind: "reflection",
       content: "The image-cdn origin returned 503s during a cache purge storm",
       importance: 0.9,
     });
     const hits = await mem.recallMemories("origin 5xx during cache purge", 5);
     expect(hits.some((h) => h.item.content.includes("cache purge storm"))).toBe(true);
+  });
+
+  test("conversational stream writes are NOT semantically recallable", async () => {
+    // Stream kinds live in agent_stream, which has no vector column at all.
+    // This is the contract that replaced the old zero-vector placeholder:
+    // there is no way to land an unembedded row in the semantic store.
+    for (const kind of ["user_msg", "agent_msg", "observation", "action"] as const) {
+      await mem.remember({
+        sessionId: "s-stream",
+        kind,
+        content: `zebra quasar telemetry anomaly ${kind}`,
+        importance: 0.9,
+      });
+    }
+    const hits = await mem.recallMemories("zebra quasar telemetry anomaly", 10);
+    expect(hits.some((h) => h.item.content.includes("zebra quasar"))).toBe(false);
+
+    // ...but they ARE in the recency feed, which is what they are for.
+    const recent = await mem.recentMemories(10, "s-stream");
+    expect(recent).toHaveLength(4);
+  });
+
+  test("semantic recall stays non-empty when only stream writes happened", async () => {
+    // Regression guard for the defect this split fixed: on the live corpus,
+    // every row was a stream kind, so the old `kind NOT IN (...)` post-filter
+    // excluded 100% of the table and recall_memories always returned nothing.
+    const isolated = new MockMemoryService();
+    await isolated.remember({ sessionId: "s-x", kind: "user_msg", content: "hello there" });
+    await isolated.remember({
+      sessionId: "s-x",
+      kind: "reflection",
+      content: "Resolved the payments timeout by raising the pool ceiling",
+      importance: 0.9,
+    });
+    const hits = await isolated.recallMemories("payments timeout pool", 5);
+    expect(hits.length).toBeGreaterThan(0);
+    expect(hits.every((h) => h.item.kind === "reflection")).toBe(true);
+  });
+
+  test("episodic recall consolidates repeats of one failure signature", async () => {
+    const isolated = new MockMemoryService();
+    const svc = await isolated.resolveService("checkout-api");
+    // The same failure mode, ten times, with only the numbers differing —
+    // exactly the shape a real fleet produces.
+    for (let i = 0; i < 10; i++) {
+      const inc = await isolated.recordIncident({
+        serviceId: svc.id,
+        title: `checkout-api p99 latency spike to ${i + 2}s from connection pool exhaustion`,
+        summary: `p99 climbed to ${i + 2}s; pool saturated at max_connections.`,
+        severity: "SEV2",
+      });
+      await isolated.resolveIncident(inc.id, "Raised pool size and added a circuit breaker.");
+    }
+    const hits = await isolated.recallSimilarIncidents(
+      "checkout-api connection pool exhaustion causing 500s",
+      5,
+    );
+    // The ten repeats collapse to ONE representative carrying the recurrence
+    // count. (The seeded corpus's own pool-exhaustion incident is worded
+    // differently, so it stays a separate episode — which is correct.)
+    const repeats = hits.filter((h) => h.item.title.includes("p99 latency spike to"));
+    expect(repeats).toHaveLength(1);
+    expect(repeats[0]!.occurrences).toBe(10);
+    // And the ledger is no longer five rows of the same thing.
+    expect(new Set(hits.map((h) => h.item.title)).size).toBe(hits.length);
   });
 
   test("assigns every memory a region (REGIONAL BY ROW simulation)", () => {

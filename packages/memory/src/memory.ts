@@ -1,13 +1,19 @@
-import { getPool, toVectorLiteral } from "./db.js";
-import { embed, EMBED_DIM } from "./embeddings.js";
+import type { PoolClient } from "pg";
+import { beamSize, getPool, toVectorLiteral } from "./db.js";
+import { embed } from "./embeddings.js";
 import {
   ARCHIVE_AFTER_DAYS,
   CONFIDENCE,
   DECAY_AFTER_DAYS,
   classifyLearnedWrite,
+  consolidateEpisodes,
+  episodeSignature,
   gateRunbookContent,
+  overfetchFor,
 } from "./hygiene.js";
+import { isStreamKind } from "./types.js";
 import type {
+  CompleteIncidentOutcome,
   HygieneAction,
   HygieneEvent,
   IMemoryService,
@@ -23,6 +29,12 @@ import type {
   Severity,
 } from "./types.js";
 
+/** Anything we can run SQL on: the pool itself or a transaction's client. */
+type Queryable = Pick<PoolClient, "query">;
+
+/** Longest service name we will accept from model output. */
+const MAX_SERVICE_NAME = 64;
+
 /**
  * MemoryService — BlackBox's agentic memory layer over CockroachDB.
  *
@@ -34,38 +46,47 @@ import type {
  *    Embeddings are unit-normalized (see embeddings.ts), so L2 distance is
  *    monotonic with cosine similarity and matches the index's default metric.
  *  - vector_search_beam_size trades recall accuracy for latency; we raise it
- *    from the default 32 for the (small) recall sets an incident needs.
+ *    from the default 32 and apply it once per pooled connection (db.ts), so
+ *    a recall is one round trip rather than BEGIN/SET LOCAL/query/COMMIT.
+ *  - Episodic recall CONSOLIDATES: fleets repeat their failure modes, so the
+ *    k nearest rows are often k copies of one memory. We over-fetch, cluster,
+ *    and return distinct lessons with a recurrence count.
+ *  - Two memory tables, split by access pattern: `agent_memory` (embedded,
+ *    similarity-searched) and `agent_stream` (append-only, read by recency).
  */
 export class MemoryService implements IMemoryService {
-  private readonly beamSize: number;
+  private readonly beam: number;
 
   constructor(opts: { beamSize?: number } = {}) {
-    // Clamp to a safe integer: this value is interpolated into a SET statement
-    // (SET does not accept bind parameters), so we never let it be arbitrary.
-    const requested = Math.floor(opts.beamSize ?? 64);
-    this.beamSize = Math.max(1, Math.min(2048, Number.isFinite(requested) ? requested : 64));
+    this.beam = opts.beamSize
+      ? Math.max(1, Math.min(2048, Math.floor(opts.beamSize)))
+      : beamSize();
   }
 
   /**
-   * Run one vector-search statement with the tuned beam size applied via
-   * SET LOCAL inside a transaction, so the setting cannot leak onto the
-   * pooled connection after release.
+   * Run one vector-search statement. The beam size is already applied to every
+   * pooled connection at setup (see db.ts), so this is a single round trip —
+   * no BEGIN/SET LOCAL/COMMIT wrapper. Inside an explicit transaction the
+   * caller passes its own client.
    */
-  private async searchWithBeam(sql: string, params: unknown[]): Promise<any[]> {
+  private async search(sql: string, params: unknown[], on: Queryable = getPool()): Promise<any[]> {
+    const { rows } = await on.query(sql, params);
+    return rows;
+  }
+
+  /** Run a unit of work as one CockroachDB transaction, or roll it all back. */
+  private async inTransaction<T>(fn: (client: PoolClient) => Promise<T>): Promise<T> {
     const client = await getPool().connect();
     try {
-      // BEGIN + SET LOCAL in one simple-query round-trip (no bind params; the
-      // beam size is already clamped to a safe integer in the constructor).
-      // Against remote CockroachDB Cloud this saves a full RTT per recall.
-      await client.query(`BEGIN; SET LOCAL vector_search_beam_size = ${this.beamSize}`);
-      const { rows } = await client.query(sql, params);
+      await client.query("BEGIN");
+      const result = await fn(client);
       await client.query("COMMIT");
-      return rows;
+      return result;
     } catch (err) {
       try {
         await client.query("ROLLBACK");
       } catch {
-        /* connection may be gone; release below */
+        /* connection may already be gone */
       }
       throw err;
     } finally {
@@ -83,9 +104,20 @@ export class MemoryService implements IMemoryService {
     return rows.map(mapService);
   }
 
-  /** Agents refer to services by name; resolve (or lazily create) the record. */
+  /**
+   * Agents refer to services by name; resolve (or lazily create) the record.
+   * The name arrives from model output on a public endpoint, so it is
+   * normalised and bounded here — an unbounded lazy INSERT is a write
+   * amplification primitive for anyone who can talk to the agent.
+   */
   async resolveService(name: string): Promise<Service> {
-    const normalized = name.trim().toLowerCase();
+    const normalized = name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9._-]+/g, "-")
+      .replace(/^-+|-+$/g, "")
+      .slice(0, MAX_SERVICE_NAME);
+    if (!normalized) throw new Error("service name must contain at least one alphanumeric character");
     const { rows } = await getPool().query(
       `INSERT INTO services (name, environment)
        VALUES ($1, 'production')
@@ -147,13 +179,21 @@ export class MemoryService implements IMemoryService {
   /**
    * Semantic recall of past resolved incidents most similar to a situation.
    * This is the core "institutional memory" query the agent leans on.
+   *
+   * Real fleets fail the same way over and over, so the k nearest ROWS are
+   * frequently k copies of ONE memory. We over-fetch, consolidate near-
+   * identical episodes into a single representative, and report how often the
+   * signature recurred — so the agent gets `limit` DISTINCT lessons plus the
+   * frequency signal, instead of one lesson `limit` times.
    */
   async recallSimilarIncidents(
     situation: string,
     limit = 5,
   ): Promise<RecallHit<Incident>[]> {
     const q = toVectorLiteral(await embed(situation));
-    const rows = await this.searchWithBeam(
+    // Over-fetch enough to survive heavy clustering without a second query.
+    const overfetch = overfetchFor(limit);
+    const rows = await this.search(
       `SELECT id, service_id, title, summary, severity, status, signals,
               resolution, crdb_region::string AS region, opened_at, resolved_at,
               embedding <-> $1 AS distance
@@ -161,9 +201,20 @@ export class MemoryService implements IMemoryService {
         WHERE status = 'resolved' AND resolution IS NOT NULL
         ORDER BY embedding <-> $1
         LIMIT $2`,
-      [q, limit],
+      [q, overfetch],
     );
-    return rows.map((r) => ({ item: mapIncident(r), distance: Number(r.distance) }));
+
+    const candidates = rows.map((r) => ({
+      distance: Number(r.distance),
+      signature: episodeSignature(String(r.title)),
+      row: r,
+    }));
+
+    return consolidateEpisodes(candidates, limit).map((c) => ({
+      item: mapIncident(c.representative.row),
+      distance: c.representative.distance,
+      occurrences: c.occurrences,
+    }));
   }
 
   // ---- Semantic/procedural memory: runbooks --------------------------------
@@ -193,7 +244,7 @@ export class MemoryService implements IMemoryService {
    */
   async recallRunbooks(situation: string, limit = 3): Promise<RecallHit<Runbook>[]> {
     const q = toVectorLiteral(await embed(situation));
-    const rows = await this.searchWithBeam(
+    const rows = await this.search(
       `SELECT ${RUNBOOK_COLS}, embedding <-> $1 AS distance
          FROM runbooks
         WHERE status = 'active'
@@ -239,22 +290,41 @@ export class MemoryService implements IMemoryService {
     title: string;
     body: string;
     tags?: string[];
+    trusted?: boolean;
   }): Promise<LearnOutcome> {
+    return this.commitLearnedRunbookOn(getPool(), input);
+  }
+
+  /** The gate itself, runnable on the pool or inside a caller's transaction. */
+  private async commitLearnedRunbookOn(
+    on: Queryable,
+    input: {
+      incidentId: string;
+      title: string;
+      body: string;
+      tags?: string[];
+      trusted?: boolean;
+    },
+  ): Promise<LearnOutcome> {
+    // Fail closed: only an explicitly trusted caller writes into live recall.
+    const trusted = input.trusted === true;
+
     const gate = gateRunbookContent(input.body);
     if (!gate.ok) {
-      await this.logHygiene("rejected", "runbook", null, `write rejected: ${gate.reason} (incident ${input.incidentId})`);
+      await this.logHygiene(on, "rejected", "runbook", null, `write rejected: ${gate.reason} (incident ${input.incidentId})`);
       return { action: "rejected", detail: gate.reason };
     }
 
     const embedding = await embed(`${input.title}\n\n${input.body}`);
     const q = toVectorLiteral(embedding);
-    const nearestRows = await this.searchWithBeam(
+    const nearestRows = await this.search(
       `SELECT ${RUNBOOK_COLS}, embedding <-> $1 AS distance
          FROM runbooks
         WHERE status = 'active'
         ORDER BY embedding <-> $1
         LIMIT 1`,
       [q],
+      on,
     );
     const nearest = nearestRows[0]
       ? { row: mapRunbook(nearestRows[0]), distance: Number(nearestRows[0].distance) }
@@ -265,8 +335,12 @@ export class MemoryService implements IMemoryService {
       input.body,
     );
 
-    if (decision.kind === "merge" && nearest) {
-      await getPool().query(
+    // Consolidating into an existing ACTIVE runbook also reinforces it. That is
+    // a write into trusted knowledge, so an untrusted session must not reach it
+    // — otherwise anonymous input could promote curated content's ranking
+    // without ever being reviewed. Untrusted writes always land in quarantine.
+    if (decision.kind === "merge" && nearest && trusted) {
+      await on.query(
         `UPDATE runbooks
             SET reinforced_count = reinforced_count + 1,
                 confidence = LEAST($2, confidence + $3),
@@ -275,37 +349,137 @@ export class MemoryService implements IMemoryService {
         [nearest.row.id, CONFIDENCE.max, CONFIDENCE.reinforceStep],
       );
       const detail = `consolidated into "${nearest.row.title}" (distance ${nearest.distance.toFixed(3)}) instead of duplicating`;
-      await this.logHygiene("merged", "runbook", nearest.row.id, detail);
+      await this.logHygiene(on, "merged", "runbook", nearest.row.id, detail);
       return { action: "merged", runbookId: nearest.row.id, detail };
     }
 
     const contradicts = decision.kind === "contradiction" && nearest ? nearest.row : null;
     const confidence = contradicts ? CONFIDENCE.contradicted : CONFIDENCE.learned;
-    const { rows } = await getPool().query(
-      `INSERT INTO runbooks (title, body, tags, embedding, source, confidence)
-       VALUES ($1, $2, $3, $4, 'learned', $5)
+    const status = trusted ? "active" : "quarantined";
+    const origin = trusted ? "trusted" : "anonymous";
+    const { rows } = await on.query(
+      `INSERT INTO runbooks (title, body, tags, embedding, source, status, origin, confidence)
+       VALUES ($1, $2, $3, $4, 'learned', $5, $6, $7)
        RETURNING ${RUNBOOK_COLS}`,
-      [input.title, input.body, input.tags ?? [], q, confidence],
+      [input.title, input.body, input.tags ?? [], q, status, origin, confidence],
     );
     const created = mapRunbook(rows[0]);
+
+    if (!trusted) {
+      const detail =
+        "written by an unauthenticated session — quarantined pending operator " +
+        "review; stored and auditable, but never recalled";
+      await this.logHygiene(on, "quarantined", "runbook", created.id, detail);
+      return { action: "quarantined", runbookId: created.id, detail };
+    }
 
     if (contradicts) {
       const detail =
         `new fix disagrees with "${contradicts.title}" for a similar situation; ` +
         `kept both, new one on probation (confidence ${confidence})`;
-      await this.logHygiene("contradiction", "runbook", created.id, detail);
+      await this.logHygiene(on, "contradiction", "runbook", created.id, detail);
       return { action: "accepted", runbookId: created.id, contradictsId: contradicts.id, detail };
     }
 
     const detail = `learned runbook accepted (confidence ${confidence}) from incident ${input.incidentId}`;
-    await this.logHygiene("accepted", "runbook", created.id, detail);
+    await this.logHygiene(on, "accepted", "runbook", created.id, detail);
     return { action: "accepted", runbookId: created.id, detail };
+  }
+
+  /**
+   * The learning loop, atomically. Resolving an incident, distilling the fix,
+   * reinforcing what helped and recording the reflection are ONE unit of work:
+   * a partially-applied lesson leaves the store claiming knowledge it never
+   * finished writing. CockroachDB gives us a serializable transaction across
+   * four tables in three regions — so we use one.
+   */
+  async completeIncident(input: {
+    incidentId: string;
+    resolution: string;
+    sessionId: string;
+    recalledRunbookIds: string[];
+    trusted?: boolean;
+  }): Promise<CompleteIncidentOutcome> {
+    // Embed OUTSIDE the transaction. A Bedrock round trip takes seconds and
+    // must not hold locks (or risk a transaction timeout) while it runs.
+    const incidentRows = await this.search(`SELECT title FROM incidents WHERE id = $1`, [
+      input.incidentId,
+    ]);
+    const title: string = incidentRows[0]?.title ?? "untitled incident";
+    const reflection = `Resolved "${title}". Learned: ${input.resolution}`;
+    const reflectionVector = toVectorLiteral(await embed(reflection));
+
+    return this.inTransaction(async (client) => {
+      await client.query(
+        `UPDATE incidents
+            SET status = 'resolved', resolution = $2, resolved_at = now()
+          WHERE id = $1`,
+        [input.incidentId, input.resolution],
+      );
+
+      const learn = await this.commitLearnedRunbookOn(client, {
+        incidentId: input.incidentId,
+        title: `Learned runbook: ${title}`,
+        body:
+          `Distilled from incident ${input.incidentId} ` +
+          `(${new Date().toISOString().slice(0, 10)}):\n${input.resolution}`,
+        tags: ["learned", "auto-postmortem"],
+        trusted: input.trusted,
+      });
+
+      const reinforced = await this.reinforceRunbooksOn(client, input.recalledRunbookIds);
+
+      const { rows } = await client.query(
+        `INSERT INTO agent_memory (session_id, incident_id, kind, content, importance, embedding)
+         VALUES ($1, $2, 'reflection', $3, 0.9, $4)
+         RETURNING id`,
+        [input.sessionId, input.incidentId, reflection, reflectionVector],
+      );
+
+      return { learn, reinforced, reflectionId: rows[0]?.id ?? null };
+    });
+  }
+
+  /** Release a quarantined runbook into live recall (trusted-operator action). */
+  async promoteRunbook(runbookId: string): Promise<boolean> {
+    const { rows } = await getPool().query(
+      `UPDATE runbooks
+          SET status = 'active', origin = 'trusted', updated_at = now()
+        WHERE id = $1 AND status = 'quarantined'
+        RETURNING id, title`,
+      [runbookId],
+    );
+    if (rows.length === 0) return false;
+    await this.logHygiene(
+      getPool(),
+      "promoted",
+      "runbook",
+      rows[0].id,
+      `"${rows[0].title}" promoted out of quarantine by a trusted operator`,
+    );
+    return true;
+  }
+
+  /** Quarantined learned knowledge awaiting operator review. */
+  async listQuarantined(limit = 20): Promise<Runbook[]> {
+    const capped = Math.max(1, Math.min(100, Math.floor(limit)));
+    const { rows } = await getPool().query(
+      `SELECT ${RUNBOOK_COLS} FROM runbooks
+        WHERE status = 'quarantined'
+        ORDER BY updated_at DESC LIMIT $1`,
+      [capped],
+    );
+    return rows.map(mapRunbook);
   }
 
   /** Positive feedback: recalled runbooks that fed a real resolution earn trust. */
   async reinforceRunbooks(runbookIds: string[]): Promise<number> {
+    return this.reinforceRunbooksOn(getPool(), runbookIds);
+  }
+
+  private async reinforceRunbooksOn(on: Queryable, runbookIds: string[]): Promise<number> {
     if (runbookIds.length === 0) return 0;
-    const { rows } = await getPool().query(
+    const { rows } = await on.query(
       `UPDATE runbooks
           SET confidence = LEAST($2, confidence + $3),
               reinforced_count = reinforced_count + 1,
@@ -316,6 +490,7 @@ export class MemoryService implements IMemoryService {
     );
     if (rows.length > 0) {
       await this.logHygiene(
+        on,
         "reinforced",
         "runbook",
         rows[0].id,
@@ -351,10 +526,10 @@ export class MemoryService implements IMemoryService {
       [CONFIDENCE.archiveBelow, ARCHIVE_AFTER_DAYS],
     );
     if (decayed.rows.length > 0) {
-      await this.logHygiene("decayed", "runbook", null, `${decayed.rows.length} unused learned runbook(s) lost confidence`);
+      await this.logHygiene(getPool(), "decayed", "runbook", null, `${decayed.rows.length} unused learned runbook(s) lost confidence`);
     }
     for (const r of archived.rows) {
-      await this.logHygiene("archived", "runbook", r.id, `"${r.title}" archived: never earned trust`);
+      await this.logHygiene(getPool(), "archived", "runbook", r.id, `"${r.title}" archived: never earned trust`);
     }
     return { decayed: decayed.rows.length, archived: archived.rows.length };
   }
@@ -370,42 +545,65 @@ export class MemoryService implements IMemoryService {
     return rows.map(mapHygieneEvent);
   }
 
-  /** Record a write-path decision. Never throws — bookkeeping must not break the loop. */
+  /**
+   * Record a write-path decision. On the pool this never throws — losing an
+   * audit row must not break the reasoning loop. Inside a transaction it DOES
+   * propagate: a failed statement aborts the CockroachDB transaction anyway,
+   * so swallowing the error would leave the caller running blind against a
+   * dead transaction.
+   */
   private async logHygiene(
+    on: Queryable,
     action: HygieneAction,
     targetKind: "runbook" | "memory",
     targetId: string | null,
     detail: string,
   ): Promise<void> {
-    try {
-      await getPool().query(
-        `INSERT INTO memory_hygiene_events (action, target_kind, target_id, detail)
-         VALUES ($1, $2, $3, $4)`,
-        [action, targetKind, targetId, detail],
-      );
-    } catch {
-      /* the decision still applied; only the audit row was lost */
+    const insert = on.query(
+      `INSERT INTO memory_hygiene_events (action, target_kind, target_id, detail)
+       VALUES ($1, $2, $3, $4)`,
+      [action, targetKind, targetId, detail],
+    );
+    if (on === getPool()) {
+      await insert.catch(() => {
+        /* the decision still applied; only the audit row was lost */
+      });
+      return;
     }
+    await insert;
   }
 
   // ---- Working + long-term stream: agent_memory ----------------------------
 
-  /** Append a thought/observation/action to the agent's memory stream. */
+  /**
+   * Append to memory. The KIND picks the table, so it is structurally
+   * impossible to put an unembedded row in the semantic store:
+   *
+   *   stream kinds (user_msg/agent_msg/observation/action)
+   *       -> agent_stream, no vector, no embedding call
+   *   semantic kinds (reflection/insight)
+   *       -> agent_memory, always embedded, always recallable
+   */
   async remember(input: {
     sessionId: string;
     incidentId?: string | null;
     kind: MemoryKind;
     content: string;
     importance?: number;
-    embed?: boolean;
   }): Promise<MemoryItem> {
-    // High-volume stream writes skip the embedding API call to conserve quota.
-    // We store a zero vector rather than NULL because the C-SPANN vector index
-    // rejects NULL embeddings on insert. A zero vector is NOT a "never matches"
-    // sentinel (it sits at distance 1.0 from any unit query), so recallMemories
-    // filters these kinds out explicitly rather than relying on ranking.
-    const embedding =
-      input.embed === false ? new Array(EMBED_DIM).fill(0) : await embed(input.content);
+    const importance = input.importance ?? 0.5;
+
+    if (isStreamKind(input.kind)) {
+      const { rows } = await getPool().query(
+        `INSERT INTO agent_stream (session_id, incident_id, kind, content, importance)
+         VALUES ($1, $2, $3, $4, $5)
+         RETURNING id, session_id, incident_id, kind, content, importance,
+                   crdb_region::string AS region, created_at`,
+        [input.sessionId, input.incidentId ?? null, input.kind, input.content, importance],
+      );
+      return mapMemory(rows[0]);
+    }
+
     const { rows } = await getPool().query(
       `INSERT INTO agent_memory (session_id, incident_id, kind, content, importance, embedding)
        VALUES ($1, $2, $3, $4, $5, $6)
@@ -416,33 +614,28 @@ export class MemoryService implements IMemoryService {
         input.incidentId ?? null,
         input.kind,
         input.content,
-        input.importance ?? 0.5,
-        toVectorLiteral(embedding),
+        importance,
+        toVectorLiteral(await embed(input.content)),
       ],
     );
     return mapMemory(rows[0]);
   }
 
   /**
-   * Semantic recall over the agent's own memory stream, importance-weighted.
-   * The SQL orders by pure distance so the C-SPANN vector index can serve it
-   * (an expression ordering would force a full scan); we over-fetch 3x and
-   * apply the importance re-ranking in the application layer.
-   *
-   * Only rows written WITH a real embedding are recallable. High-volume stream
-   * writes (messages, action/observation logs) are stored with a zero vector to
-   * conserve embedding quota (see remember()), and a zero vector sits at L2
-   * distance 1.0 from any unit query — close enough to out-rank genuinely
-   * dissimilar real memories. Excluding those kinds keeps recall meaningful.
+   * Semantic recall over the agent's own durable memory, importance-weighted.
+   * Every row in `agent_memory` carries a real embedding, so there is no kind
+   * predicate here — the vector index serves the whole query. (It used to
+   * filter out zero-vector stream rows, which the index could not help with
+   * and which, on a live corpus, excluded 100% of the table.)
+   * We over-fetch 3x and apply importance re-ranking in the application layer.
    */
   async recallMemories(query: string, limit = 6): Promise<RecallHit<MemoryItem>[]> {
     const q = toVectorLiteral(await embed(query));
-    const rows = await this.searchWithBeam(
+    const rows = await this.search(
       `SELECT id, session_id, incident_id, kind, content, importance,
               crdb_region::string AS region, created_at,
               embedding <-> $1 AS distance
          FROM agent_memory
-        WHERE kind NOT IN ('user_msg', 'agent_msg', 'observation', 'action')
         ORDER BY embedding <-> $1
         LIMIT $2`,
       [q, limit * 3],
@@ -457,24 +650,23 @@ export class MemoryService implements IMemoryService {
       .slice(0, limit);
   }
 
-  /** Most recent memory-stream entries, for the UI feed. */
+  /**
+   * Most recent entries across BOTH tables, newest first — the console's
+   * memory feed shows the conversation and the durable lessons interleaved.
+   */
   async recentMemories(limit = 12, sessionId?: string): Promise<MemoryItem[]> {
     const capped = Math.max(1, Math.min(50, Math.floor(limit)));
-    const { rows } = sessionId
-      ? await getPool().query(
-          `SELECT id, session_id, incident_id, kind, content, importance,
-                  crdb_region::string AS region, created_at
-             FROM agent_memory WHERE session_id = $2
-            ORDER BY created_at DESC LIMIT $1`,
-          [capped, sessionId],
-        )
-      : await getPool().query(
-          `SELECT id, session_id, incident_id, kind, content, importance,
-                  crdb_region::string AS region, created_at
-             FROM agent_memory
-            ORDER BY created_at DESC LIMIT $1`,
-          [capped],
-        );
+    const cols = `id, session_id, incident_id, kind, content, importance,
+                  crdb_region::string AS region, created_at`;
+    const where = sessionId ? "WHERE session_id = $2" : "";
+    const { rows } = await getPool().query(
+      `SELECT * FROM (
+         (SELECT ${cols} FROM agent_stream ${where} ORDER BY created_at DESC LIMIT $1)
+         UNION ALL
+         (SELECT ${cols} FROM agent_memory ${where} ORDER BY created_at DESC LIMIT $1)
+       ) ORDER BY created_at DESC LIMIT $1`,
+      sessionId ? [capped, sessionId] : [capped],
+    );
     return rows.map(mapMemory);
   }
 
@@ -539,7 +731,7 @@ export class MemoryService implements IMemoryService {
 
 /** Shared runbook projection: every runbook read returns the hygiene columns. */
 const RUNBOOK_COLS = `id, title, body, tags, crdb_region::string AS region,
-       source, status, confidence, recall_count, reinforced_count, last_recalled_at`;
+       source, status, origin, confidence, recall_count, reinforced_count, last_recalled_at`;
 
 function mapService(r: any): Service {
   return {
@@ -576,6 +768,7 @@ function mapRunbook(r: any): Runbook {
     region: r.region,
     source: r.source ?? "curated",
     status: r.status ?? "active",
+    origin: r.origin ?? "trusted",
     confidence: Number(r.confidence ?? 0.6),
     recallCount: Number(r.recall_count ?? 0),
     reinforcedCount: Number(r.reinforced_count ?? 0),

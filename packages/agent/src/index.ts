@@ -16,7 +16,7 @@ export { handler as lambdaHandler } from "./lambda.js";
  * REAL memory backend — used on the local chaos rig where CockroachDB is live
  * but Bedrock credentials may not exist yet.
  */
-export function createAgent(opts: { sessionId: string }): Agent {
+export function createAgent(opts: { sessionId: string; trusted?: boolean }): Agent {
   const mockAgent = process.env.BLACKBOX_MOCK_AGENT;
   const useMock =
     isMock() || mockAgent === "1" || mockAgent === "true" || mockAgent === "yes";

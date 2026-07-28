@@ -96,6 +96,109 @@ function tokenize(text: string): string[] {
 }
 
 /**
+ * Two recalled episodes closer than this to each other are the SAME failure
+ * signature seen on different days, not two independent pieces of evidence.
+ * Chosen from live measurements: repeat firings of one seeded failure mode sit
+ * at ~0.01-0.06 apart, while genuinely distinct incidents are >0.3 apart.
+ */
+export const EPISODE_DUPLICATE_DISTANCE = 0.15;
+
+/**
+ * How many rows to fetch before consolidating down to `limit` episodes.
+ *
+ * Sized from live measurement, not guesswork. On the production corpus the
+ * single most common failure signature accounts for ~74 of the nearest 150
+ * rows, so a narrow over-fetch returns one episode where the caller asked for
+ * five. Measured against the 3-region managed cluster:
+ *
+ *   LIMIT  40 -> 1 distinct episode
+ *   LIMIT  80 -> 2 distinct episodes
+ *   LIMIT 150 -> 5 distinct episodes, ~1.2s
+ *   LIMIT 300 -> 5 distinct episodes, ~1.24s
+ *   LIMIT 600 -> 5 distinct episodes, ~1.8s   (paying for nothing)
+ *
+ * 30x the requested limit, capped at 300, sits on the flat part of that curve.
+ */
+export function overfetchFor(limit: number): number {
+  return Math.min(300, Math.max(limit * 30, 60));
+}
+
+/** A recall candidate that can be consolidated: needs a vector and a label. */
+export interface Consolidatable {
+  distance: number;
+  /** Full-precision embedding, when available, for pairwise comparison. */
+  embedding?: number[];
+  /** Fallback signature when no embedding is at hand (normalised title). */
+  signature: string;
+}
+
+/** L2 distance between two unit vectors — matches CockroachDB's `<->`. */
+export function l2(a: number[], b: number[]): number {
+  let s = 0;
+  for (let i = 0; i < a.length; i++) {
+    const d = (a[i] ?? 0) - (b[i] ?? 0);
+    s += d * d;
+  }
+  return Math.sqrt(s);
+}
+
+/**
+ * Collapse an over-fetched candidate list into DISTINCT episodes.
+ *
+ * Episodic memory in an SRE fleet is inherently repetitive: the same failure
+ * mode fires dozens of times across months. Returning the five nearest rows
+ * therefore returns one memory five times, which wastes the agent's context
+ * and makes the evidence ledger look like a padded corpus.
+ *
+ * Consolidation keeps the nearest representative of each cluster and reports
+ * how many times that signature recurred. Recurrence is not noise — "we have
+ * seen this 47 times" is the single most useful thing institutional memory can
+ * tell an on-call engineer, so it is surfaced rather than discarded.
+ *
+ * Candidates must already be sorted nearest-first.
+ */
+export function consolidateEpisodes<T extends Consolidatable>(
+  candidates: T[],
+  limit: number,
+  threshold = EPISODE_DUPLICATE_DISTANCE,
+): { representative: T; occurrences: number; nearestDuplicate: number | null }[] {
+  const clusters: { representative: T; occurrences: number; nearestDuplicate: number | null }[] = [];
+
+  for (const c of candidates) {
+    // Same episode if EITHER signal says so. The signature catches templated
+    // repeats whose embeddings drift apart on the varying numbers; the vector
+    // catches restatements of one event under different titles. Using only
+    // whichever signal happens to be present would make the SQL-backed and
+    // in-memory services disagree on identical data.
+    const existing = clusters.find((cluster) => {
+      const rep = cluster.representative;
+      if (rep.signature === c.signature) return true;
+      return Boolean(
+        rep.embedding && c.embedding && l2(rep.embedding, c.embedding) < threshold,
+      );
+    });
+    if (existing) {
+      existing.occurrences++;
+      if (existing.nearestDuplicate === null) existing.nearestDuplicate = c.distance;
+      continue;
+    }
+    clusters.push({ representative: c, occurrences: 1, nearestDuplicate: null });
+  }
+
+  return clusters.slice(0, limit);
+}
+
+/** Normalise an episode title into a comparison signature (digits elided). */
+export function episodeSignature(title: string): string {
+  return title
+    .toLowerCase()
+    .replace(/\d+(\.\d+)?/g, "#")
+    .replace(/[^a-z#\s]/g, " ")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+/**
  * Classify a gated learned write against its nearest active neighbour.
  * Pure decision logic shared by the real and mock services.
  */

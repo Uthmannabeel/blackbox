@@ -377,6 +377,19 @@ footer { border-top: 1px solid var(--border); padding: 46px 0 40px; color: var(-
 .mem-kind.hyg-rejected, .mem-kind.hyg-contradiction { color: var(--down); }
 .mem-kind.hyg-merged, .mem-kind.hyg-accepted, .mem-kind.hyg-reinforced { color: var(--ok); }
 .mem-kind.hyg-archived, .mem-kind.hyg-decayed { color: var(--muted); }
+/* quarantined = held pending review, not an error: the one accent, not amber
+   (amber stays reserved for the recorder strip) */
+.mem-kind.hyg-quarantined { color: var(--accent-ink); }
+.mem-kind.hyg-promoted { color: var(--ok); }
+
+/* session trust state — states plainly whether this session can teach the fleet */
+.trustbar { font-family: var(--font-mono); font-size: 11px; line-height: 1.55; padding: 9px 11px; border-radius: var(--radius); border: 1px solid var(--border); margin-bottom: 12px; color: var(--muted); }
+.trustbar.trust-anon { border-color: color-mix(in srgb, var(--accent-ink) 45%, var(--border)); color: var(--ink); }
+.trustbar.trust-ok { border-color: color-mix(in srgb, var(--ok) 45%, var(--border)); }
+
+/* recurrence count in the evidence ledger */
+.ledger .lrec { color: var(--ink); font-weight: 600; }
+.statbar .sub { color: var(--muted); font-weight: 400; }
 
 /* live region topology (dark instrument surface) */
 .regionmap { margin-bottom: 14px; background: var(--recorder); border: 1px solid var(--recorder-line); border-radius: var(--radius); padding: 6px 8px; }

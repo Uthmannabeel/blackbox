@@ -22,6 +22,7 @@ const dist = await pool.query(
      SELECT crdb_region FROM incidents
      UNION ALL SELECT crdb_region FROM runbooks
      UNION ALL SELECT crdb_region FROM agent_memory
+  UNION ALL SELECT crdb_region FROM agent_stream
    ) AS m GROUP BY m.crdb_region ORDER BY region`,
 );
 for (const r of dist.rows) console.log(`   ${r.region.padEnd(14)} ${r.rows} memories`);

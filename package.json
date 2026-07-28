@@ -16,6 +16,8 @@
     "db:seed": "npm run build && node packages/memory/dist/scripts/seed.js",
     "db:seed:scale": "npm run build && node packages/memory/dist/scripts/seedScale.js",
     "db:ingest-postmortems": "npm run build && node packages/memory/dist/scripts/ingestPostmortems.js",
+    "db:migrate:stream": "npm run build && node packages/memory/dist/scripts/migrateStream.js",
+    "db:prune-abandoned": "npm run build && node packages/memory/dist/scripts/pruneAbandoned.js",
     "db:decay": "npm run build && node packages/memory/dist/scripts/decay.js",
     "agent:dev": "npm run build && node packages/agent/dist/cli.js",
     "dev": "npm run dev -w @blackbox/web",

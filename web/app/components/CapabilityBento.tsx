@@ -15,19 +15,24 @@ interface MapNode {
 
 interface Stats {
   total: number | null;
-  recallMs: number | null;
+  /** CockroachDB's vector-search leg, excluding the Bedrock embedding call. */
+  searchMs: number | null;
 }
 
 /**
  * Evidence rows captured verbatim from a live recall against the production
- * cluster (2026-07-09) — same shape the console ledger renders. Kept static so
+ * cluster (2026-07-28) — same shape the console ledger renders. Kept static so
  * the home page costs no model call; the caption says exactly where it's from.
+ *
+ * `seen` is the recurrence count after consolidation. An earlier capture showed
+ * three near-identical rows of one incident, because recall returned the k
+ * nearest ROWS; it now returns k distinct EPISODES and reports how often each
+ * signature recurred.
  */
 const CAPTURED_EVIDENCE = [
-  { kind: "incident", title: "checkout-api p99 latency spike to 20s from connection pool exhaustion", region: "us-east-1", dist: "0.67" },
-  { kind: "incident", title: "checkout-api p99 latency spike to 18s from connection pool exhaustion", region: "eu-west-1", dist: "0.67" },
-  { kind: "incident", title: "checkout-api p99 latency spike to 28s from connection pool exhaustion", region: "ap-south-1", dist: "0.68" },
-  { kind: "runbook", title: "Runbook: Connection pool exhaustion", region: "eu-west-1", dist: "1.28" },
+  { kind: "incident", title: "checkout-api p99 latency spike to 5s from connection pool exhaustion", region: "ap-south-1", dist: "0.74", seen: 72 },
+  { kind: "incident", title: "checkout-api thread pool starvation under burst traffic", region: "ap-south-1", dist: "0.80", seen: 48 },
+  { kind: "runbook", title: "Learned runbook: checkout-api connection pool exhaustion", region: "eu-west-1", dist: "0.78", seen: 1 },
 ] as const;
 
 const FALLBACK_REGIONS: MapNode[] = DEMO_REGIONS.map((r) => ({
@@ -40,7 +45,7 @@ const FALLBACK_REGIONS: MapNode[] = DEMO_REGIONS.map((r) => ({
 /** Home capabilities as a bento — every live cell reads the production cluster. */
 export function CapabilityBento() {
   const [nodes, setNodes] = useState<MapNode[]>(FALLBACK_REGIONS);
-  const [stats, setStats] = useState<Stats>({ total: null, recallMs: null });
+  const [stats, setStats] = useState<Stats>({ total: null, searchMs: null });
 
   useEffect(() => {
     let mounted = true;
@@ -69,7 +74,12 @@ export function CapabilityBento() {
         if (!mounted) return;
         setStats({
           total: typeof d.totalMemories === "number" ? d.totalMemories : null,
-          recallMs: typeof d.recallMs === "number" ? d.recallMs : null,
+          searchMs:
+            typeof d.searchMs === "number"
+              ? d.searchMs
+              : typeof d.recallMs === "number"
+                ? d.recallMs
+                : null,
         });
       })
       .catch(() => {});
@@ -95,7 +105,7 @@ export function CapabilityBento() {
           above are live from the production cluster.
         </p>
         <div className="b-fact">
-          <span>last validated drill</span>
+          <span>last validated drill · 9-node local rig</span>
           <span>primary region killed · top-5 recall identical · 136 ms</span>
         </div>
         <Link href="/survivability" className="b-link">
@@ -108,8 +118,8 @@ export function CapabilityBento() {
         <h3>Institutional memory, in milliseconds</h3>
         <div className="b-stats">
           <div>
-            <div className="v">{stats.recallMs !== null ? `${stats.recallMs} ms` : "—"}</div>
-            <div className="l">semantic recall, measured live</div>
+            <div className="v">{stats.searchMs !== null ? `${stats.searchMs} ms` : "—"}</div>
+            <div className="l">vector search, measured live</div>
           </div>
           <div>
             <div className="v">{stats.total !== null ? stats.total.toLocaleString() : "—"}</div>
@@ -126,13 +136,21 @@ export function CapabilityBento() {
         <div className="k">Evidence</div>
         <h3>Every answer cites its memory</h3>
         <div className="ledger">
-          <div className="ledger-h">recall captured 2026-07-09, production cluster · lower = closer</div>
+          <div className="ledger-h">
+            recall captured 2026-07-28, production cluster · lower = closer · ×N = recurrences
+          </div>
           {CAPTURED_EVIDENCE.map((e, i) => (
             <div className="ledger-row" key={i}>
               <span className="ln">[{i + 1}]</span>
               <span className="lt">{e.title}</span>
               <span className="lm">
                 {e.region} · {e.dist}
+                {e.seen > 1 && (
+                  <>
+                    {" · "}
+                    <b className="lrec">×{e.seen}</b>
+                  </>
+                )}
               </span>
             </div>
           ))}

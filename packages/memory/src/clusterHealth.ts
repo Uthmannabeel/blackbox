@@ -108,7 +108,8 @@ export async function clusterHealth(): Promise<ClusterHealth> {
     pool.query(
       `SELECT (SELECT count(*) FROM incidents)
             + (SELECT count(*) FROM runbooks)
-            + (SELECT count(*) FROM agent_memory) AS total`,
+            + (SELECT count(*) FROM agent_memory)
+            + (SELECT count(*) FROM agent_stream) AS total`,
     ),
   ]);
 

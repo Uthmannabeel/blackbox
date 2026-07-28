@@ -91,7 +91,15 @@ CREATE TABLE IF NOT EXISTS runbooks (
     -- archived rows are invisible to recall. This is what makes the store a
     -- managed memory, not an append-only log.
     source           STRING NOT NULL DEFAULT 'curated',  -- curated | learned
-    status           STRING NOT NULL DEFAULT 'active',   -- active | archived
+    -- active     -> recallable
+    -- quarantined-> written by an UNAUTHENTICATED session; retained and
+    --               auditable, but never recalled until a trusted operator
+    --               promotes it. This is what stops a stranger on the public
+    --               console from writing into everyone else's procedural memory.
+    -- archived   -> decayed out (never earned trust); kept for the audit trail
+    status           STRING NOT NULL DEFAULT 'active',   -- active | quarantined | archived
+    -- Trust provenance of the writer, independent of the content decision.
+    origin           STRING NOT NULL DEFAULT 'trusted',  -- trusted | anonymous
     confidence       FLOAT  NOT NULL DEFAULT 0.6,        -- 0..1
     recall_count     INT    NOT NULL DEFAULT 0,
     reinforced_count INT    NOT NULL DEFAULT 0,
@@ -107,6 +115,7 @@ CREATE TABLE IF NOT EXISTS runbooks (
 -- affects post-hoc CREATE INDEX alongside an inline vector index).
 ALTER TABLE runbooks ADD COLUMN IF NOT EXISTS source STRING NOT NULL DEFAULT 'curated';
 ALTER TABLE runbooks ADD COLUMN IF NOT EXISTS status STRING NOT NULL DEFAULT 'active';
+ALTER TABLE runbooks ADD COLUMN IF NOT EXISTS origin STRING NOT NULL DEFAULT 'trusted';
 ALTER TABLE runbooks ADD COLUMN IF NOT EXISTS confidence FLOAT NOT NULL DEFAULT 0.6;
 ALTER TABLE runbooks ADD COLUMN IF NOT EXISTS recall_count INT NOT NULL DEFAULT 0;
 ALTER TABLE runbooks ADD COLUMN IF NOT EXISTS reinforced_count INT NOT NULL DEFAULT 0;
@@ -117,7 +126,8 @@ ALTER TABLE runbooks ADD COLUMN IF NOT EXISTS last_recalled_at TIMESTAMPTZ;
 -- learned write is gated, deduplicated, and checked for contradictions before
 -- it can influence future recall; every decision lands here. Surfaced in the
 -- console so the hygiene layer is observable, not claimed.
--- action = accepted | rejected | merged | contradiction | reinforced | archived | decayed
+-- action = accepted | rejected | merged | contradiction | reinforced
+--        | quarantined | promoted | archived | decayed
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS memory_hygiene_events (
     id          UUID NOT NULL DEFAULT gen_random_uuid(),
@@ -132,9 +142,16 @@ CREATE TABLE IF NOT EXISTS memory_hygiene_events (
 ) LOCALITY REGIONAL BY ROW;
 
 -- ---------------------------------------------------------------------------
--- agent_memory: the agent's working + long-term memory stream. Each row is a
--- thought/observation/action the agent recorded, embedded for later recall.
--- kind = observation | action | reflection | user_msg | agent_msg
+-- agent_memory: SEMANTIC memory only. Every row here carries a real embedding
+-- and is recallable by similarity. kind = reflection | insight.
+--
+-- Conversational traffic (messages, tool observations, action logs) does NOT
+-- live here — it goes to agent_stream below. Mixing the two was a modelling
+-- error: stream rows have no useful semantic content, so they were written
+-- with a placeholder zero vector, which (a) polluted the C-SPANN index with
+-- thousands of identical vectors and (b) forced recall to post-filter them
+-- out with `kind NOT IN (...)`, a predicate the vector index cannot serve.
+-- One table per access pattern: similarity search here, append-and-scan there.
 -- ---------------------------------------------------------------------------
 CREATE TABLE IF NOT EXISTS agent_memory (
     id          UUID NOT NULL DEFAULT gen_random_uuid(),
@@ -150,6 +167,27 @@ CREATE TABLE IF NOT EXISTS agent_memory (
     VECTOR INDEX agent_memory_embedding_idx (crdb_region, embedding),
     -- Inline for the same declarative-schema-changer reason as incidents.
     INDEX agent_memory_session_idx (session_id, created_at)
+) LOCALITY REGIONAL BY ROW;
+
+-- ---------------------------------------------------------------------------
+-- agent_stream: the append-only conversational/working record — user turns,
+-- agent replies, tool observations, actions taken. High volume, read by
+-- recency (the console's memory feed), never by similarity. No vector column,
+-- therefore no vector index and no embedding cost on the hot path.
+-- kind = user_msg | agent_msg | observation | action
+-- ---------------------------------------------------------------------------
+CREATE TABLE IF NOT EXISTS agent_stream (
+    id          UUID NOT NULL DEFAULT gen_random_uuid(),
+    session_id  UUID NOT NULL,
+    incident_id UUID,
+    kind        STRING NOT NULL,
+    content     STRING NOT NULL,
+    importance  FLOAT NOT NULL DEFAULT 0.5,
+    created_at  TIMESTAMPTZ NOT NULL DEFAULT now(),
+    crdb_region crdb_internal_region NOT NULL DEFAULT default_to_database_primary_region(gateway_region())::crdb_internal_region,
+    CONSTRAINT agent_stream_pkey PRIMARY KEY (crdb_region, id),
+    INDEX agent_stream_recent_idx (created_at DESC),
+    INDEX agent_stream_session_idx (session_id, created_at DESC)
 ) LOCALITY REGIONAL BY ROW;
 
 -- ---------------------------------------------------------------------------

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { isMock, hitRateLimit } from "@blackbox/memory";
-import { getAgent } from "@/lib/agentSession";
+import { getAgent, isTrustedRequest } from "@/lib/agentSession";
 import { clientKey, rateLimit } from "@/lib/rateLimit";
 
 // Per-client caps. The minute cap stops loops; the day cap protects the
@@ -73,7 +73,11 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const agent = getAgent(sessionId);
+    // Trust is decided here, at the boundary, and never inferred from anything
+    // the client can set for free. An untrusted session can still use the agent
+    // in full — it just cannot write into shared recall (see agentSession.ts).
+    const trusted = isTrustedRequest(req.headers);
+    const agent = getAgent(sessionId, trusted);
     const result = await agent.chat(message);
 
     // Only surface the tool-call trace (name + inputs the UI renders). Raw
@@ -89,6 +93,9 @@ export async function POST(req: NextRequest) {
       evidence: result.evidence ?? [],
       memoryDegraded: result.memoryDegraded ?? false,
       incidentId: agent.currentIncidentId,
+      // Surfaced so the console can say plainly whether what this session
+      // teaches the agent can reach anyone else's recall.
+      trusted,
     });
   } catch (err) {
     // Log full detail server-side; return a generic message to the client.

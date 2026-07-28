@@ -68,6 +68,7 @@ export async function GET(req: NextRequest) {
            SELECT crdb_region FROM incidents
            UNION ALL SELECT crdb_region FROM runbooks
            UNION ALL SELECT crdb_region FROM agent_memory
+           UNION ALL SELECT crdb_region FROM agent_stream
          ) AS m ${filter} GROUP BY m.crdb_region ORDER BY region`,
         exclude ? [exclude] : [],
       ),

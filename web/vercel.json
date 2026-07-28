@@ -2,5 +2,11 @@
   "$schema": "https://openapi.vercel.sh/vercel.json",
   "framework": "nextjs",
   "buildCommand": "npm --prefix .. run build && next build",
-  "installCommand": "npm --prefix .. install"
+  "installCommand": "npm --prefix .. install",
+  "crons": [
+    {
+      "path": "/api/cron/decay",
+      "schedule": "17 3 * * *"
+    }
+  ]
 }

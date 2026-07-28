@@ -35,6 +35,10 @@ export interface RegionsResponse {
 export interface StatsResponse {
   totalMemories: number;
   recallMs: number | null;
+  /** Bedrock embedding leg (0 when served from the instance embedding cache). */
+  embedMs?: number | null;
+  /** CockroachDB distributed vector search leg. */
+  searchMs?: number | null;
   regionsLive: number;
   regionsTotal: number;
   survivalGoal?: string;

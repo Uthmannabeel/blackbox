@@ -24,6 +24,11 @@ export interface Evidence {
   title: string;
   region: string;
   distance: number;
+  /**
+   * How many near-identical past episodes this one memory stands for. >1 means
+   * a recurring failure signature — itself a strong signal for an on-call.
+   */
+  occurrences?: number;
   /** Set when the memory is an ingested real-world public postmortem. */
   sourceCompany?: string;
   sourceUrl?: string;
@@ -36,6 +41,12 @@ export interface ToolContext {
   currentIncidentId: string | null;
   /** Provenance collected this turn — recalled memories that informed the answer. */
   evidence: Evidence[];
+  /**
+   * Whether this session is authenticated. FALSE for the public console, which
+   * routes anything the agent learns into quarantine instead of live recall.
+   * Defaults to untrusted — a caller must opt in.
+   */
+  trusted?: boolean;
 }
 
 /** Build the toolset, bound to the live memory service + session context. */
@@ -70,6 +81,7 @@ export function buildTools(ctx: ToolContext): AgentTool[] {
             title: h.item.title,
             region: h.item.region,
             distance: h.distance,
+            ...(h.occurrences && h.occurrences > 1 ? { occurrences: h.occurrences } : {}),
             ...(src ? { sourceCompany: src.company, sourceUrl: src.url } : {}),
           });
         }
@@ -78,9 +90,15 @@ export function buildTools(ctx: ToolContext): AgentTool[] {
           .map((h, i) => {
             const src = publicPostmortemSource(h.item.signals);
             const cite = src ? `\n  Public postmortem (${src.company}): ${src.url}` : "";
+            // Recurrence is evidence: "this has happened 47 times" tells an
+            // on-call engineer something a single nearest-neighbour cannot.
+            const recur =
+              h.occurrences && h.occurrences > 1
+                ? `\n  Recurrence: this failure signature appears ${h.occurrences} times in memory.`
+                : "";
             return (
               `#${i + 1} (distance ${h.distance.toFixed(3)}, region ${h.item.region}) ` +
-              `[${h.item.severity}] ${h.item.title}\n  Summary: ${h.item.summary}\n  Resolution: ${h.item.resolution}${cite}`
+              `[${h.item.severity}] ${h.item.title}\n  Summary: ${h.item.summary}\n  Resolution: ${h.item.resolution}${recur}${cite}`
             );
           })
           .join("\n\n");
@@ -236,49 +254,40 @@ export function buildTools(ctx: ToolContext): AgentTool[] {
         if (!ctx.currentIncidentId) return "No current incident to resolve.";
         const id = ctx.currentIncidentId;
         const resolution = String(input.resolution);
-        await ctx.memory.resolveIncident(id, resolution);
 
-        // THE LEARNING LOOP, gated: the distilled fix must pass the memory
-        // hygiene layer (content gate, duplicate consolidation, contradiction
-        // check) before it can influence future recall. An unfiltered write
-        // path is how self-improving memories poison themselves.
-        const incident = await ctx.memory.getIncident(id);
-        const title = incident?.title ?? "untitled incident";
-        const outcome = await ctx.memory.commitLearnedRunbook({
-          incidentId: id,
-          title: `Learned runbook: ${title}`,
-          body: `Distilled from incident ${id} (${new Date().toISOString().slice(0, 10)}):\n${resolution}`,
-          tags: ["learned", "auto-postmortem"],
-        });
-
-        // Positive feedback: runbooks recalled during this investigation
-        // contributed to a real resolution — they earn confidence.
+        // THE LEARNING LOOP, gated AND atomic. The distilled fix must pass the
+        // memory hygiene layer (content gate, duplicate consolidation,
+        // contradiction check) before it can influence future recall — an
+        // unfiltered write path is how self-improving memories poison
+        // themselves. All four writes (resolve, distil, reinforce, reflect)
+        // commit together or not at all; a half-written lesson is worse than
+        // no lesson.
         const recalledRunbooks = [
           ...new Set(ctx.evidence.filter((e) => e.kind === "runbook").map((e) => e.id)),
         ];
-        const reinforced = await ctx.memory.reinforceRunbooks(recalledRunbooks);
-
-        await ctx.memory.remember({
-          sessionId: ctx.sessionId,
+        const { learn, reinforced } = await ctx.memory.completeIncident({
           incidentId: id,
-          kind: "reflection",
-          content: `Resolved "${title}". Learned: ${resolution}`,
-          importance: 0.9,
+          resolution,
+          sessionId: ctx.sessionId,
+          recalledRunbookIds: recalledRunbooks,
+          trusted: ctx.trusted === true,
         });
 
         const learnLine =
-          outcome.action === "merged"
-            ? `The fix matched existing knowledge — hygiene layer consolidated it (${outcome.detail}).`
-            : outcome.action === "rejected"
-              ? `The distilled fix did NOT pass the memory hygiene gate (${outcome.detail}); nothing was committed to procedural memory.`
-              : outcome.contradictsId
-                ? `A learned runbook was committed on probation — it contradicts existing knowledge (${outcome.detail}).`
-                : `A learned runbook passed the hygiene gate and was committed — future similar incidents will recall this fix.`;
+          learn.action === "merged"
+            ? `The fix matched existing knowledge — hygiene layer consolidated it (${learn.detail}).`
+            : learn.action === "rejected"
+              ? `The distilled fix did NOT pass the memory hygiene gate (${learn.detail}); nothing was committed to procedural memory.`
+              : learn.action === "quarantined"
+                ? `This session is unauthenticated, so the distilled fix was QUARANTINED (${learn.detail}). It will not affect anyone else's recall until an operator promotes it.`
+                : learn.contradictsId
+                  ? `A learned runbook was committed on probation — it contradicts existing knowledge (${learn.detail}).`
+                  : `A learned runbook passed the hygiene gate and was committed — future similar incidents will recall this fix.`;
         const reinforceLine =
           reinforced > 0
             ? ` ${reinforced} runbook(s) recalled during this incident were reinforced.`
             : "";
-        return `Incident ${id} resolved and committed to episodic memory. ${learnLine}${reinforceLine}`;
+        return `Incident ${id} resolved and committed to episodic memory in one transaction. ${learnLine}${reinforceLine}`;
       },
     },
   ];

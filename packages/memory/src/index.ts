@@ -5,7 +5,7 @@ import type { IMemoryService } from "./types.js";
 
 export { MemoryService } from "./memory.js";
 export { MockMemoryService } from "./mockMemory.js";
-export { getPool, closePool } from "./db.js";
+export { getPool, closePool, warmPool, beamSize } from "./db.js";
 export { embed, EMBED_DIM } from "./embeddings.js";
 export { isMock, isMockEmbeddings, loadEnv } from "./env.js";
 export { regionLiveness, clusterHealth } from "./clusterHealth.js";
@@ -23,9 +23,14 @@ export {
   CONFIDENCE,
   DUPLICATE_DISTANCE,
   CONTRADICTION_DISTANCE,
+  EPISODE_DUPLICATE_DISTANCE,
   gateRunbookContent,
   tokenOverlap,
   classifyLearnedWrite,
+  consolidateEpisodes,
+  episodeSignature,
+  overfetchFor,
+  l2,
 } from "./hygiene.js";
 export type { RateResult } from "./rateLimit.js";
 export * from "./types.js";

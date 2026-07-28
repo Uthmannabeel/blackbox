@@ -73,7 +73,13 @@ export class BlackBoxAgent implements Agent {
   private readonly toolConfig: ToolConfiguration;
   private readonly history: Message[] = [];
 
-  constructor(opts: { sessionId: string; incidentId?: string | null; memory?: IMemoryService }) {
+  constructor(opts: {
+    sessionId: string;
+    incidentId?: string | null;
+    memory?: IMemoryService;
+    /** Authenticated session? Untrusted sessions can only write to quarantine. */
+    trusted?: boolean;
+  }) {
     this.client = new BedrockRuntimeClient({ region: process.env.AWS_REGION ?? "us-east-1" });
     this.modelId = process.env.BEDROCK_MODEL_ID ?? "us.anthropic.claude-sonnet-4-6";
     this.memory = opts.memory ?? createMemoryService();
@@ -82,6 +88,7 @@ export class BlackBoxAgent implements Agent {
       sessionId: opts.sessionId,
       currentIncidentId: opts.incidentId ?? null,
       evidence: [],
+      trusted: opts.trusted === true,
     };
     this.tools = buildTools(this.ctx);
     this.toolConfig = {
@@ -95,21 +102,21 @@ export class BlackBoxAgent implements Agent {
 
   /**
    * Queue a durable-memory write without blocking the reasoning loop — each
-   * write costs a Bedrock embedding round-trip, so serializing them inside the
-   * loop would add seconds of latency per turn. flushWrites() awaits them all
-   * before chat() returns (required for Lambda's freeze semantics).
+   * write is a cross-region round trip, so serializing them inside the loop
+   * would add latency per turn. flushWrites() awaits them all before chat()
+   * returns (required for Lambda's freeze semantics).
    */
   private pendingWrites: Promise<boolean>[] = [];
   private memoryDegraded = false;
   private lastMemoryError: string | null = null;
 
   private recordMemory(input: Parameters<IMemoryService["remember"]>[0]): void {
-    // Stream writes (messages, action logs) skip embedding — they're shown in
-    // the memory feed but don't need semantic recall. Keeps per-turn embedding
-    // calls low so we don't exhaust embedding quota. Resolve to true/false so
+    // These are all stream kinds, so the memory layer appends them to
+    // agent_stream without an embedding round trip — the routing lives in the
+    // memory service, not in a flag here. Resolve to true/false so
     // flushWrites() can surface real failures without swallowing them.
     this.pendingWrites.push(
-      this.memory.remember({ ...input, embed: false }).then(
+      this.memory.remember(input).then(
         () => true,
         (err) => {
           this.lastMemoryError = (err as Error).message;

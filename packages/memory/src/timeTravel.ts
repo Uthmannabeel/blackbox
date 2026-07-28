@@ -31,11 +31,17 @@ export async function snapshotAsOf(secondsAgo: number): Promise<MemorySnapshot> 
     const totalRes = await client.query(
       `SELECT (SELECT count(*) FROM incidents)
             + (SELECT count(*) FROM runbooks)
-            + (SELECT count(*) FROM agent_memory) AS total`,
+            + (SELECT count(*) FROM agent_memory)
+            + (SELECT count(*) FROM agent_stream) AS total`,
     );
     const sampleRes = await client.query(
-      `SELECT id, kind, content, crdb_region::string AS region, created_at
-         FROM agent_memory ORDER BY created_at DESC LIMIT 6`,
+      `SELECT * FROM (
+         (SELECT id, kind, content, crdb_region::string AS region, created_at
+            FROM agent_stream ORDER BY created_at DESC LIMIT 6)
+         UNION ALL
+         (SELECT id, kind, content, crdb_region::string AS region, created_at
+            FROM agent_memory ORDER BY created_at DESC LIMIT 6)
+       ) ORDER BY created_at DESC LIMIT 6`,
     );
     await client.query("COMMIT");
     return {

@@ -7,6 +7,8 @@ import { RegionMap } from "../components/RegionMap";
 
 interface Evidence {
   kind: string; id: string; title: string; region: string; distance: number;
+  /** Repeats of this failure signature that consolidated into one entry. */
+  occurrences?: number;
   sourceCompany?: string; sourceUrl?: string;
 }
 
@@ -23,7 +25,17 @@ interface IncidentInfo {
   incident: { id: string; title: string; severity: string; status: string; region: string };
   state: { phase: string; hypotheses: string[]; nextSteps: string[] } | null;
 }
-interface Stats { totalMemories: number; recallMs: number | null; regionsLive: number; regionsTotal: number }
+interface Stats {
+  totalMemories: number;
+  /** End-to-end: embedding + vector search. */
+  recallMs: number | null;
+  /** Bedrock embedding leg (0 when served from the instance embedding cache). */
+  embedMs?: number | null;
+  /** CockroachDB distributed vector search leg — the number this project is about. */
+  searchMs?: number | null;
+  regionsLive: number;
+  regionsTotal: number;
+}
 interface HygieneEvent { id: string; action: string; detail: string; createdAt: string }
 
 // After a real node drain, wait for the cluster to settle before re-reading
@@ -88,6 +100,8 @@ const HYGIENE_LABELS: Record<string, string> = {
   accepted: "accepted",
   rejected: "rejected",
   merged: "consolidated",
+  quarantined: "quarantined",
+  promoted: "promoted",
   contradiction: "contradiction",
   reinforced: "reinforced",
   archived: "archived",
@@ -102,6 +116,8 @@ export default function Console() {
   const [incidentInfo, setIncidentInfo] = useState<IncidentInfo | null>(null);
   const [memories, setMemories] = useState<MemoryRow[]>([]);
   const [hygiene, setHygiene] = useState<HygieneEvent[]>([]);
+  // Null until the first reply tells us whether this session is authenticated.
+  const [trusted, setTrusted] = useState<boolean | null>(null);
   const [stats, setStats] = useState<Stats | null>(null);
   const [timeSeconds, setTimeSeconds] = useState(0);
   const [snapshot, setSnapshot] = useState<{ total: number | null; sample: MemoryRow[] }>({ total: null, sample: [] });
@@ -190,6 +206,7 @@ export default function Console() {
       if (data.memoryDegraded) {
         setTurns((t) => [...t, { role: "trace", tool: "memory write degraded", detail: "some memories were not persisted" }]);
       }
+      if (typeof data.trusted === "boolean") setTrusted(data.trusted);
       if (data.incidentId) refreshIncident(data.incidentId);
       refreshMemories();
       refreshStats();
@@ -274,7 +291,15 @@ export default function Console() {
       {stats && (
         <div className="statbar">
           <span><b>{stats.totalMemories.toLocaleString()}</b> memories</span>
-          <span>semantic recall <b>{stats.recallMs != null ? `${stats.recallMs} ms` : "—"}</b></span>
+          <span
+            title="CockroachDB distributed vector search. The Bedrock embedding call is timed separately so this number reflects the database, not the model."
+          >
+            vector search{" "}
+            <b>{stats.searchMs != null ? `${stats.searchMs} ms` : stats.recallMs != null ? `${stats.recallMs} ms` : "—"}</b>
+            {stats.embedMs != null && stats.embedMs > 0 && (
+              <span className="sub"> + {stats.embedMs} ms embed</span>
+            )}
+          </span>
           <span>regions <b>{stats.regionsLive}/{stats.regionsTotal}</b></span>
           <span>survives <b>{survival} failure</b></span>
         </div>
@@ -308,13 +333,23 @@ export default function Console() {
                   <div className="body-text">{t.role === "agent" ? clean(t.text) : t.text}</div>
                   {t.role === "agent" && t.evidence && t.evidence.length > 0 && (
                     <div className="ledger">
-                      <div className="ledger-h">evidence — {t.evidence.length} memories recalled · lower distance = closer</div>
+                      <div className="ledger-h">
+                        evidence — {t.evidence.length} distinct memories · lower distance = closer
+                        {t.evidence.some((e) => (e.occurrences ?? 1) > 1) &&
+                          " · ×N = times this signature recurred"}
+                      </div>
                       {t.evidence.map((e, j) => (
                         <div className="ledger-row" key={`${e.id}-${j}`}>
                           <span className="ln">[{j + 1}]</span>
                           <span className="lt">{e.title}</span>
                           <span className="lm">
                             {e.kind} · {e.region} · dist {e.distance.toFixed(2)}
+                            {(e.occurrences ?? 1) > 1 && (
+                              <>
+                                {" · "}
+                                <b className="lrec">×{e.occurrences}</b>
+                              </>
+                            )}
                             {e.sourceUrl && e.sourceUrl.startsWith("https://") && (
                               <>
                                 {" · "}
@@ -492,6 +527,13 @@ export default function Console() {
           <div className="panel">
             <h2>Memory hygiene — the gated write path</h2>
             <div className="body memfeed">
+              {trusted !== null && (
+                <div className={`trustbar ${trusted ? "trust-ok" : "trust-anon"}`}>
+                  {trusted
+                    ? "Authenticated operator session — lessons learned here enter shared recall once they pass the gate."
+                    : "Unauthenticated session. Anything this agent learns from you is quarantined: stored and auditable, but never recalled by anyone else until an operator promotes it."}
+                </div>
+              )}
               {hygiene.length === 0 ? (
                 <div className="hint">
                   Every learned fix passes a write gate before it can influence recall:

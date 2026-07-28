@@ -16,11 +16,13 @@ import type { Evidence } from "./tools.js";
 export class MockAgent implements Agent {
   private readonly memory: IMemoryService;
   private readonly sessionId: string;
+  private readonly trusted: boolean;
   private _incidentId: string | null = null;
 
-  constructor(opts: { sessionId: string; memory?: IMemoryService }) {
+  constructor(opts: { sessionId: string; memory?: IMemoryService; trusted?: boolean }) {
     this.sessionId = opts.sessionId;
     this.memory = opts.memory ?? createMemoryService();
+    this.trusted = opts.trusted === true;
   }
 
   get currentIncidentId(): string | null {
@@ -90,23 +92,18 @@ export class MockAgent implements Agent {
       const id = this._incidentId;
       const resolution = userMessage;
       events.push({ type: "tool_call", tool: "resolve_incident", input: { resolution } });
-      await this.memory.resolveIncident(id, resolution);
       const incident = await this.memory.getIncident(id);
       const title = incident?.title ?? "untitled incident";
-      // Same gated learning loop as the real agent: the hygiene layer decides
-      // whether the distilled fix is committed, consolidated, or rejected.
-      const outcome = await this.memory.commitLearnedRunbook({
+      // Same gated, ATOMIC learning loop as the real agent: resolve, distil,
+      // reinforce and reflect all land together, and the hygiene layer decides
+      // whether the distilled fix is committed, consolidated, quarantined or
+      // rejected.
+      const { learn: outcome } = await this.memory.completeIncident({
         incidentId: id,
-        title: `Learned runbook: ${title}`,
-        body: `Distilled from incident ${id}:\n${resolution}`,
-        tags: ["learned", "auto-postmortem"],
-      });
-      await this.memory.remember({
+        resolution,
         sessionId: this.sessionId,
-        incidentId: id,
-        kind: "reflection",
-        content: `Resolved "${title}". Learned: ${resolution}`,
-        importance: 0.9,
+        recalledRunbookIds: [],
+        trusted: this.trusted,
       });
       events.push({
         type: "tool_result",
@@ -119,8 +116,10 @@ export class MockAgent implements Agent {
           ? `📚 **Learning loop:** this fix matched knowledge I already hold — the hygiene layer consolidated it into the existing runbook instead of duplicating it.`
           : outcome.action === "rejected"
             ? `🧹 **Hygiene gate:** the distilled fix was rejected (${outcome.detail}) — nothing was committed to procedural memory.`
-            : `📚 **Learning loop:** the fix passed the hygiene gate and became *"Learned runbook: ${title}"*. ` +
-              `The next time something similar happens, I'll recall exactly what fixed it this time.`;
+            : outcome.action === "quarantined"
+              ? `🔒 **Quarantined:** this session is unauthenticated, so the distilled fix is stored for review but will not enter anyone's recall until an operator promotes it.`
+              : `📚 **Learning loop:** the fix passed the hygiene gate and became *"Learned runbook: ${title}"*. ` +
+                `The next time something similar happens, I'll recall exactly what fixed it this time.`;
       const reply = `✅ **Incident resolved** and committed to episodic memory.\n\n${learnLine}`;
       await this.memory.remember({
         sessionId: this.sessionId,

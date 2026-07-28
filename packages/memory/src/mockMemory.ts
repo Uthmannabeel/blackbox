@@ -1,8 +1,17 @@
 import { randomUUID } from "node:crypto";
 import { embed } from "./embeddings.js";
-import { CONFIDENCE, classifyLearnedWrite, gateRunbookContent } from "./hygiene.js";
+import {
+  CONFIDENCE,
+  classifyLearnedWrite,
+  consolidateEpisodes,
+  episodeSignature,
+  gateRunbookContent,
+  overfetchFor,
+} from "./hygiene.js";
 import { HISTORICAL_INCIDENTS, RUNBOOKS, SERVICES } from "./seedData.js";
+import { isStreamKind } from "./types.js";
 import type {
+  CompleteIncidentOutcome,
   HygieneAction,
   HygieneEvent,
   IMemoryService,
@@ -30,6 +39,7 @@ function defaultHygiene(source: "curated" | "learned") {
   return {
     source,
     status: "active" as const,
+    origin: "trusted" as const,
     confidence: source === "curated" ? 0.6 : CONFIDENCE.learned,
     recallCount: 0,
     reinforcedCount: 0,
@@ -55,7 +65,17 @@ function l2(a: number[], b: number[]): number {
 export class MockMemoryService implements IMemoryService {
   private incidents: Vec<Incident>[] = [];
   private runbooks: Vec<Runbook>[] = [];
+  /** Semantic memory: reflections/insights, always embedded. */
   private memories: Vec<MemoryItem>[] = [];
+  /** Conversational stream: never embedded, read by recency. */
+  private stream: MemoryItem[] = [];
+  /**
+   * Monotonic write counter. Two writes in the same millisecond share a
+   * created_at, so recency ordering needs a tiebreak the wall clock cannot
+   * give us. CockroachDB has MVCC timestamps for this; the mock keeps a seq.
+   */
+  private seq = 0;
+  private writeOrder = new Map<string, number>();
   private states = new Map<string, IncidentStateRecord>();
   private services: Service[] = [];
   private hygieneEvents: HygieneEvent[] = [];
@@ -184,11 +204,22 @@ export class MockMemoryService implements IMemoryService {
   async recallSimilarIncidents(situation: string, limit = 5): Promise<RecallHit<Incident>[]> {
     await this.seeded;
     const q = await embed(situation);
-    return this.incidents
+    const candidates = this.incidents
       .filter((i) => i.row.status === "resolved" && i.row.resolution)
-      .map((i) => ({ item: i.row, distance: l2(q, i.embedding) }))
+      .map((i) => ({
+        distance: l2(q, i.embedding),
+        embedding: i.embedding,
+        signature: episodeSignature(i.row.title),
+        row: i.row,
+      }))
       .sort((a, b) => a.distance - b.distance)
-      .slice(0, limit);
+      .slice(0, overfetchFor(limit));
+
+    return consolidateEpisodes(candidates, limit).map((c) => ({
+      item: c.representative.row,
+      distance: c.representative.distance,
+      occurrences: c.occurrences,
+    }));
   }
 
   async upsertRunbook(input: { title: string; body: string; tags?: string[] }): Promise<Runbook> {
@@ -231,8 +262,12 @@ export class MockMemoryService implements IMemoryService {
     title: string;
     body: string;
     tags?: string[];
+    trusted?: boolean;
   }): Promise<LearnOutcome> {
     await this.seeded;
+    // Fail closed, exactly as the CockroachDB-backed service does.
+    const trusted = input.trusted === true;
+
     const gate = gateRunbookContent(input.body);
     if (!gate.ok) {
       this.logHygiene("rejected", null, `write rejected: ${gate.reason} (incident ${input.incidentId})`);
@@ -250,7 +285,7 @@ export class MockMemoryService implements IMemoryService {
       input.body,
     );
 
-    if (decision.kind === "merge" && nearest) {
+    if (decision.kind === "merge" && nearest && trusted) {
       nearest.r.row.reinforcedCount++;
       nearest.r.row.confidence = Math.min(
         CONFIDENCE.max,
@@ -269,9 +304,19 @@ export class MockMemoryService implements IMemoryService {
       tags: input.tags ?? [],
       region: this.nextRegion(),
       ...defaultHygiene("learned"),
+      status: trusted ? "active" : "quarantined",
+      origin: trusted ? "trusted" : "anonymous",
       confidence: contradicts ? CONFIDENCE.contradicted : CONFIDENCE.learned,
     };
     this.runbooks.push({ row, embedding });
+
+    if (!trusted) {
+      const detail =
+        "written by an unauthenticated session — quarantined pending operator " +
+        "review; stored and auditable, but never recalled";
+      this.logHygiene("quarantined", row.id, detail);
+      return { action: "quarantined", runbookId: row.id, detail };
+    }
 
     if (contradicts) {
       const detail =
@@ -283,6 +328,77 @@ export class MockMemoryService implements IMemoryService {
     const detail = `learned runbook accepted (confidence ${row.confidence}) from incident ${input.incidentId}`;
     this.logHygiene("accepted", row.id, detail);
     return { action: "accepted", runbookId: row.id, detail };
+  }
+
+  /**
+   * The learning loop as one unit. The mock has no transaction manager, so it
+   * mirrors the real service's ATOMICITY by snapshotting the mutable state and
+   * restoring it if any step throws — same contract, same observable outcome.
+   */
+  async completeIncident(input: {
+    incidentId: string;
+    resolution: string;
+    sessionId: string;
+    recalledRunbookIds: string[];
+    trusted?: boolean;
+  }): Promise<CompleteIncidentOutcome> {
+    await this.seeded;
+    const snapshot = {
+      runbooks: this.runbooks.map((r) => ({ ...r, row: { ...r.row } })),
+      memories: [...this.memories],
+      hygieneEvents: [...this.hygieneEvents],
+      incidents: this.incidents.map((i) => ({ ...i, row: { ...i.row } })),
+    };
+    try {
+      await this.resolveIncident(input.incidentId, input.resolution);
+      const title = (await this.getIncident(input.incidentId))?.title ?? "untitled incident";
+      const learn = await this.commitLearnedRunbook({
+        incidentId: input.incidentId,
+        title: `Learned runbook: ${title}`,
+        body:
+          `Distilled from incident ${input.incidentId} ` +
+          `(${new Date().toISOString().slice(0, 10)}):\n${input.resolution}`,
+        tags: ["learned", "auto-postmortem"],
+        trusted: input.trusted,
+      });
+      const reinforced = await this.reinforceRunbooks(input.recalledRunbookIds);
+      const reflection = await this.remember({
+        sessionId: input.sessionId,
+        incidentId: input.incidentId,
+        kind: "reflection",
+        content: `Resolved "${title}". Learned: ${input.resolution}`,
+        importance: 0.9,
+      });
+      return { learn, reinforced, reflectionId: reflection.id };
+    } catch (err) {
+      this.runbooks = snapshot.runbooks;
+      this.memories = snapshot.memories;
+      this.hygieneEvents = snapshot.hygieneEvents;
+      this.incidents = snapshot.incidents;
+      throw err;
+    }
+  }
+
+  async promoteRunbook(runbookId: string): Promise<boolean> {
+    await this.seeded;
+    const hit = this.runbooks.find((r) => r.row.id === runbookId && r.row.status === "quarantined");
+    if (!hit) return false;
+    hit.row.status = "active";
+    hit.row.origin = "trusted";
+    this.logHygiene(
+      "promoted",
+      hit.row.id,
+      `"${hit.row.title}" promoted out of quarantine by a trusted operator`,
+    );
+    return true;
+  }
+
+  async listQuarantined(limit = 20): Promise<Runbook[]> {
+    await this.seeded;
+    return this.runbooks
+      .filter((r) => r.row.status === "quarantined")
+      .slice(0, Math.max(1, Math.min(100, limit)))
+      .map((r) => r.row);
   }
 
   async reinforceRunbooks(runbookIds: string[]): Promise<number> {
@@ -338,13 +454,13 @@ export class MockMemoryService implements IMemoryService {
     });
   }
 
+  /** Kind routes the write, exactly as in the CockroachDB-backed service. */
   async remember(input: {
     sessionId: string;
     incidentId?: string | null;
     kind: MemoryKind;
     content: string;
     importance?: number;
-    embed?: boolean;
   }): Promise<MemoryItem> {
     await this.seeded;
     const row: MemoryItem = {
@@ -357,7 +473,12 @@ export class MockMemoryService implements IMemoryService {
       region: this.nextRegion(),
       createdAt: new Date().toISOString(),
     };
-    this.memories.push({ row, embedding: await embed(input.content) });
+    this.writeOrder.set(row.id, this.seq++);
+    if (isStreamKind(input.kind)) {
+      this.stream.push(row);
+    } else {
+      this.memories.push({ row, embedding: await embed(input.content) });
+    }
     return row;
   }
 
@@ -376,13 +497,14 @@ export class MockMemoryService implements IMemoryService {
   async recentMemories(limit = 12, sessionId?: string): Promise<MemoryItem[]> {
     await this.seeded;
     const capped = Math.max(1, Math.min(50, Math.floor(limit)));
-    const rows = sessionId
-      ? this.memories.filter((m) => m.row.sessionId === sessionId)
-      : this.memories;
-    return rows
-      .slice(-capped)
-      .reverse()
-      .map((m) => m.row);
+    const all = [...this.stream, ...this.memories.map((m) => m.row)];
+    return all
+      .filter((m) => !sessionId || m.sessionId === sessionId)
+      .sort((a, b) => {
+        if (a.createdAt !== b.createdAt) return a.createdAt < b.createdAt ? 1 : -1;
+        return (this.writeOrder.get(b.id) ?? 0) - (this.writeOrder.get(a.id) ?? 0);
+      })
+      .slice(0, capped);
   }
 
   async getIncidentState(incidentId: string): Promise<IncidentStateRecord | null> {
@@ -416,6 +538,7 @@ export class MockMemoryService implements IMemoryService {
     for (const i of this.incidents) counts.set(i.row.region, (counts.get(i.row.region) ?? 0) + 1);
     for (const r of this.runbooks) counts.set(r.row.region, (counts.get(r.row.region) ?? 0) + 1);
     for (const m of this.memories) counts.set(m.row.region, (counts.get(m.row.region) ?? 0) + 1);
+    for (const s of this.stream) counts.set(s.region, (counts.get(s.region) ?? 0) + 1);
     return REGIONS.map((region) => ({ region, rows: counts.get(region) ?? 0 }));
   }
 }
