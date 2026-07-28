@@ -129,8 +129,10 @@ export default function Console() {
   const [memories, setMemories] = useState<MemoryRow[]>([]);
   const [hygiene, setHygiene] = useState<HygieneEvent[]>([]);
   const [quarantined, setQuarantined] = useState<Quarantined[]>([]);
-  // Null until the first reply tells us whether this session is authenticated.
-  const [trusted, setTrusted] = useState<boolean | null>(null);
+  // Starts false rather than unknown: with no operator token the server cannot
+  // trust this session, so "untrusted" is a fact before the first request, not
+  // a guess. Set to null only while a freshly-typed token is unverified.
+  const [trusted, setTrusted] = useState<boolean | null>(false);
   const [operatorToken, setOperatorToken] = useState("");
   const [stats, setStats] = useState<Stats | null>(null);
   const [timeSeconds, setTimeSeconds] = useState(0);
@@ -570,13 +572,13 @@ export default function Console() {
           <div className="panel">
             <h2>Memory hygiene — the gated write path</h2>
             <div className="body memfeed">
-              {trusted !== null && (
-                <div className={`trustbar ${trusted ? "trust-ok" : "trust-anon"}`}>
-                  {trusted
-                    ? "Authenticated operator session — lessons learned here enter shared recall once they pass the gate."
+              <div className={`trustbar ${trusted === true ? "trust-ok" : "trust-anon"}`}>
+                {trusted === true
+                  ? "Authenticated operator session — lessons learned here enter shared recall once they pass the gate."
+                  : trusted === null
+                    ? "Operator token entered — it is verified on your next message."
                     : "Unauthenticated session. Anything this agent learns from you is quarantined: stored and auditable, but never recalled by anyone else until an operator promotes it."}
-                </div>
-              )}
+              </div>
 
               <div className="oprow">
                 <label htmlFor="optok">operator token</label>
@@ -595,7 +597,9 @@ export default function Console() {
                       if (v) sessionStorage.setItem(OPERATOR_KEY, v);
                       else sessionStorage.removeItem(OPERATOR_KEY);
                     } catch { /* storage blocked — token stays in memory */ }
-                    setTrusted(null);
+                    // Empty box is definitively untrusted; a typed token is
+                    // unverified until the server says otherwise.
+                    setTrusted(v ? null : false);
                   }}
                 />
               </div>

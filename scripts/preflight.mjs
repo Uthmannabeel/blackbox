@@ -6,13 +6,42 @@ const sid = randomUUID(); // session_id is a UUID column — must be valid
 let pass = 0, fail = 0;
 const ok = (c, m) => { console.log(`  ${c ? "PASS" : "FAIL"}  ${m}`); c ? pass++ : fail++; return c; };
 
-async function get(p) { const r = await fetch(BASE + p); return { status: r.status, body: await r.json().catch(() => ({})) }; }
+const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+
+/**
+ * Agent turns take ~20s, and a TLS-intercepting corporate proxy will happily
+ * drop a connection that idle. That is a network fact, not a failed check —
+ * retry transport errors so pre-flight reports on the app, not the office wifi.
+ */
+async function withRetry(fn, label, attempts = 3) {
+  let lastErr;
+  for (let i = 0; i < attempts; i++) {
+    try {
+      return await fn();
+    } catch (err) {
+      lastErr = err;
+      const cause = err?.cause?.code ?? err?.code ?? "";
+      console.log(`  ....  ${label}: transport error${cause ? ` (${cause})` : ""}, retry ${i + 1}/${attempts - 1}`);
+      await sleep(2000 * (i + 1));
+    }
+  }
+  throw lastErr;
+}
+
+async function get(p) {
+  return withRetry(async () => {
+    const r = await fetch(BASE + p);
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  }, p);
+}
 async function chat(message) {
-  const r = await fetch(BASE + "/api/chat", {
-    method: "POST", headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sessionId: sid, message }),
-  });
-  return { status: r.status, body: await r.json().catch(() => ({})) };
+  return withRetry(async () => {
+    const r = await fetch(BASE + "/api/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ sessionId: sid, message }),
+    });
+    return { status: r.status, body: await r.json().catch(() => ({})) };
+  }, "/api/chat");
 }
 const tools = (evs) => (evs || []).filter((e) => e.type === "tool_call").map((e) => e.tool);
 
@@ -29,6 +58,12 @@ for (const p of ["/", "/product", "/architecture", "/survivability", "/console"]
 console.log("\nCluster + memory:");
 const stats = await get("/api/stats");
 ok(stats.body.totalMemories > 0, `stats: ${stats.body.totalMemories} memories, recall ${stats.body.recallMs}ms, regions ${stats.body.regionsLive}/${stats.body.regionsTotal}`);
+// The published latency figure must separate the database from the model, or
+// we are back to blaming CockroachDB for a Bedrock round trip.
+ok(
+  typeof stats.body.searchMs === "number" && typeof stats.body.embedMs === "number",
+  `latency split reported: search ${stats.body.searchMs}ms + embed ${stats.body.embedMs}ms`,
+);
 const regions = await get("/api/regions");
 ok(regions.body.live === true, `regions live=${regions.body.live}, survivalGoal=${regions.body.survivalGoal}`);
 ok((regions.body.distribution || []).length === 3, `distribution across ${(regions.body.distribution || []).length} regions`);
@@ -55,19 +90,38 @@ ok(tools(c1.body.events).includes("recall_similar_incidents"), `recalled inciden
 ok((c1.body.evidence || []).length > 0, `evidence ledger: ${(c1.body.evidence || []).length} items`);
 ok(!c1.body.memoryDegraded, `memory writes durable (degraded=${c1.body.memoryDegraded}${c1.body.memoryError ? " · err: " + c1.body.memoryError : ""})`);
 ok(!!c1.body.incidentId, `incident opened: ${c1.body.incidentId}`);
+// Consolidation: the ledger must show DISTINCT episodes. Duplicate titles here
+// mean the k nearest rows are being returned raw again, which on camera reads
+// as a padded corpus.
+const titles = (c1.body.evidence || []).map((e) => e.title);
+ok(
+  new Set(titles).size === titles.length,
+  `evidence rows are distinct episodes (${new Set(titles).size}/${titles.length} unique)`,
+);
+const recurring = (c1.body.evidence || []).filter((e) => (e.occurrences ?? 1) > 1);
+ok(
+  recurring.length > 0,
+  `recurrence reported on ${recurring.length} row(s) (e.g. x${recurring[0]?.occurrences ?? "-"})`,
+);
+// Trust boundary: the public endpoint must report itself as untrusted.
+ok(c1.body.trusted === false, `public session reports trusted=${c1.body.trusted} (must be false)`);
 
 // Beat I addendum: real-postmortem recall with provenance (fresh session so the
 // checkout investigation above can't steer the recall).
 console.log("\nAgent — public-postmortem provenance:");
 const pmSid = randomUUID();
-const c3 = await fetch(BASE + "/api/chat", {
-  method: "POST", headers: { "Content-Type": "application/json" },
-  body: JSON.stringify({
-    sessionId: pmSid,
-    message:
-      "An engineer accidentally deleted the production database data directory while troubleshooting replication lag. Have we seen anything like this before?",
-  }),
-}).then((r) => r.json()).catch(() => ({}));
+const c3 = await withRetry(
+  () =>
+    fetch(BASE + "/api/chat", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        sessionId: pmSid,
+        message:
+          "An engineer accidentally deleted the production database data directory while troubleshooting replication lag. Have we seen anything like this before?",
+      }),
+    }).then((r) => r.json()),
+  "/api/chat (postmortem)",
+).catch(() => ({}));
 const cited = (c3.evidence || []).filter((e) => (e.sourceUrl || "").startsWith("https://"));
 ok(cited.length > 0, `evidence cites ${cited.length} real postmortem(s) (${cited[0]?.sourceCompany ?? "none"})`);
 
@@ -76,6 +130,25 @@ console.log("\nAgent — self-diagnosis / MCP (Act III):");
 const c2 = await chat("How many incidents are currently stored in your memory? Query the live cluster.");
 ok(c2.status === 200, `reply ok`);
 ok(tools(c2.body.events).some((x) => x === "inspect_cluster" || x === "diagnose_memory"), `introspected cluster (tools: ${tools(c2.body.events).join(", ")})`);
+
+// Trust boundary: quarantine is visible, and the release valve is guarded.
+console.log("\nTrust boundary (Act III):");
+const hyg = await get("/api/hygiene");
+ok(Array.isArray(hyg.body.quarantined), `quarantine list exposed (${(hyg.body.quarantined || []).length} held)`);
+const promoteRes = await withRetry(
+  () =>
+    fetch(BASE + "/api/quarantine/promote", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ runbookId: "00000000-0000-4000-8000-000000000000" }),
+    }),
+  "/api/quarantine/promote",
+);
+ok(promoteRes.status === 401, `unauthenticated promote rejected → ${promoteRes.status} (must be 401)`);
+if (!process.env.BLACKBOX_OPERATOR_TOKEN) {
+  console.log("  NOTE  BLACKBOX_OPERATOR_TOKEN not set locally — Act III's promote step");
+  console.log("        needs it set in Vercel AND on your clipboard for the recording.");
+}
 
 console.log(`\n${fail === 0 ? "ALL GREEN" : fail + " FAILED"} — ${pass} passed, ${fail} failed\n`);
 process.exit(fail === 0 ? 0 : 1);
