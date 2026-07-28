@@ -59,32 +59,49 @@ export default function Product() {
         <div className="wrap">
           <div className="sec-head">
             <div className="eyebrow">Memory model</div>
-            <h2>Four memory surfaces, one database.</h2>
+            <h2>Five memory surfaces, one database.</h2>
             <p>
               The full CoALA taxonomy — episodic, procedural/semantic, and working memory — plus
               transactional live state, each a table in CockroachDB, each{" "}
-              <code style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>REGIONAL BY ROW</code>.
+              <code style={{ fontFamily: "var(--font-mono)", fontSize: 13 }}>REGIONAL BY ROW</code>,
+              and each modelled for its own access pattern rather than forced into one shape.
             </p>
           </div>
           <div className="grid grid-2">
             <div className="card">
               <div className="k">Episodic</div>
               <h3>incidents</h3>
-              <p>What happened, when, and how it was resolved. Embedded with Titan v2 for semantic recall over the whole fleet.</p>
+              <p>
+                What happened, when, and how it was resolved. Embedded with Titan v2 for semantic
+                recall over the whole fleet. Recall consolidates repeats of one failure signature
+                and reports how often it has fired, instead of returning the same memory five times.
+              </p>
             </div>
             <div className="card">
               <div className="k">Procedural / semantic</div>
               <h3>runbooks</h3>
               <p>
                 How to fix classes of problem. Distilled fixes enter through a hygiene gate —
-                filtered, deduplicated, contradiction-checked, and confidence-scored — never
-                appended blindly.
+                filtered, consolidated, contradiction-checked, and confidence-scored — never
+                appended blindly, and quarantined outright when the session is unauthenticated.
               </p>
             </div>
             <div className="card">
-              <div className="k">Working / long-term</div>
+              <div className="k">Semantic</div>
               <h3>agent_memory</h3>
-              <p>The agent&rsquo;s own observations, actions, and reflections — importance-weighted so recall favors what mattered.</p>
+              <p>
+                The agent&rsquo;s own reflections and insights — importance-weighted so recall
+                favors what mattered. Every row here carries a real embedding, so the vector index
+                serves the whole table.
+              </p>
+            </div>
+            <div className="card">
+              <div className="k">Working / conversational</div>
+              <h3>agent_stream</h3>
+              <p>
+                Operator turns, agent replies, tool observations, actions. High volume, read by
+                recency, no vector column — an append-only record has no business in a vector index.
+              </p>
             </div>
             <div className="card">
               <div className="k">Transactional</div>

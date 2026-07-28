@@ -37,6 +37,18 @@ interface Stats {
   regionsTotal: number;
 }
 interface HygieneEvent { id: string; action: string; detail: string; createdAt: string }
+interface Quarantined { id: string; title: string; origin: string; confidence: number }
+
+/**
+ * Operator token, held in sessionStorage only — it dies with the tab, is never
+ * written to localStorage, and is never put in a URL. It is sent as a request
+ * header on the two routes that need trust (chat, promote).
+ */
+const OPERATOR_KEY = "bb-operator-token";
+
+function operatorHeaders(token: string): Record<string, string> {
+  return token ? { "x-blackbox-operator": token } : {};
+}
 
 // After a real node drain, wait for the cluster to settle before re-reading
 // topology (gossip liveness lags the actual shutdown by a few seconds).
@@ -116,8 +128,10 @@ export default function Console() {
   const [incidentInfo, setIncidentInfo] = useState<IncidentInfo | null>(null);
   const [memories, setMemories] = useState<MemoryRow[]>([]);
   const [hygiene, setHygiene] = useState<HygieneEvent[]>([]);
+  const [quarantined, setQuarantined] = useState<Quarantined[]>([]);
   // Null until the first reply tells us whether this session is authenticated.
   const [trusted, setTrusted] = useState<boolean | null>(null);
+  const [operatorToken, setOperatorToken] = useState("");
   const [stats, setStats] = useState<Stats | null>(null);
   const [timeSeconds, setTimeSeconds] = useState(0);
   const [snapshot, setSnapshot] = useState<{ total: number | null; sample: MemoryRow[] }>({ total: null, sample: [] });
@@ -149,7 +163,11 @@ export default function Console() {
   }, []);
   const refreshMemories = useCallback(async () => {
     try { setMemories((await (await fetch("/api/memory?limit=14")).json()).memories ?? []); } catch { /* keep */ }
-    try { setHygiene((await (await fetch("/api/hygiene")).json()).events ?? []); } catch { /* keep */ }
+    try {
+      const h = await (await fetch("/api/hygiene")).json();
+      setHygiene(h.events ?? []);
+      setQuarantined(h.quarantined ?? []);
+    } catch { /* keep */ }
   }, []);
   const refreshStats = useCallback(async () => {
     try { setStats(await (await fetch("/api/stats")).json()); } catch { /* keep */ }
@@ -168,6 +186,31 @@ export default function Console() {
       setSnapshot({ total: d.total ?? null, sample: d.sample ?? [] });
     } catch { /* aborted or failed — keep last */ }
   }, []);
+
+  // Restore an operator token for this tab only.
+  useEffect(() => {
+    try {
+      setOperatorToken(sessionStorage.getItem(OPERATOR_KEY) ?? "");
+    } catch { /* storage blocked — stay anonymous */ }
+  }, []);
+
+  const promote = useCallback(async (runbookId: string) => {
+    try {
+      const r = await fetch("/api/quarantine/promote", {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...operatorHeaders(operatorToken) },
+        body: JSON.stringify({ runbookId }),
+      });
+      if (!r.ok) {
+        const d = await r.json().catch(() => ({}));
+        setTurns((t) => [...t, { role: "trace", tool: "promote failed", detail: d.error ?? `HTTP ${r.status}` }]);
+        return;
+      }
+      refreshMemories();
+    } catch (err) {
+      setTurns((t) => [...t, { role: "trace", tool: "promote failed", detail: (err as Error).message }]);
+    }
+  }, [operatorToken, refreshMemories]);
 
   useEffect(() => {
     refreshRegions();
@@ -189,7 +232,7 @@ export default function Console() {
     try {
       const res = await fetch("/api/chat", {
         method: "POST",
-        headers: { "Content-Type": "application/json" },
+        headers: { "Content-Type": "application/json", ...operatorHeaders(operatorToken) },
         body: JSON.stringify({ sessionId, message: text }),
         signal: AbortSignal.timeout(90_000),
       });
@@ -532,6 +575,54 @@ export default function Console() {
                   {trusted
                     ? "Authenticated operator session — lessons learned here enter shared recall once they pass the gate."
                     : "Unauthenticated session. Anything this agent learns from you is quarantined: stored and auditable, but never recalled by anyone else until an operator promotes it."}
+                </div>
+              )}
+
+              <div className="oprow">
+                <label htmlFor="optok">operator token</label>
+                <input
+                  id="optok"
+                  type="password"
+                  autoComplete="off"
+                  spellCheck={false}
+                  placeholder={trusted ? "authenticated" : "anonymous — learning is quarantined"}
+                  value={operatorToken}
+                  onChange={(e) => {
+                    const v = e.target.value;
+                    setOperatorToken(v);
+                    // Session-scoped only: gone when the tab closes.
+                    try {
+                      if (v) sessionStorage.setItem(OPERATOR_KEY, v);
+                      else sessionStorage.removeItem(OPERATOR_KEY);
+                    } catch { /* storage blocked — token stays in memory */ }
+                    setTrusted(null);
+                  }}
+                />
+              </div>
+
+              {quarantined.length > 0 && (
+                <div className="quarantine">
+                  <div className="ledger-h">
+                    quarantined — {quarantined.length} lesson(s) held out of recall
+                  </div>
+                  {quarantined.map((q) => (
+                    <div className="q-row" key={q.id}>
+                      <span className="q-title">{q.title}</span>
+                      <button
+                        type="button"
+                        className="q-btn"
+                        onClick={() => promote(q.id)}
+                        disabled={!operatorToken}
+                        title={
+                          operatorToken
+                            ? "Release this into shared recall"
+                            : "Enter an operator token to promote"
+                        }
+                      >
+                        promote
+                      </button>
+                    </div>
+                  ))}
                 </div>
               )}
               {hygiene.length === 0 ? (

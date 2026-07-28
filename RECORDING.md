@@ -75,16 +75,28 @@ live makes the delta bigger.)
 6. Click the chip *"Is your memory OK? Diagnose it."* → self-diagnosis cites the **reviewing-cluster-health Agent Skill** checks + region down, memory intact.
 7. Restore.
 
-**Act III — Learn, through the hygiene gate**
+**Act III — Learn, through the hygiene gate AND the trust boundary**
+
+> Start with the console's **operator token** field EMPTY. The quarantine is the
+> beat. You need `BLACKBOX_OPERATOR_TOKEN` set in Vercel and the value on your
+> clipboard.
+
 8. Click the chip *"We raised the pool size — mark it resolved."*
-9. Point at the resolve trace, then the **memory hygiene panel**: the gate decision (consolidated/accepted) and the reinforcement of recalled runbooks land live.
+9. Point at the resolve trace, then the **memory hygiene panel**: the decision
+   reads **quarantined**, and the lesson appears in the quarantine list with
+   **promote** disabled. Say why: anonymous session on a public console.
+10. Paste the operator token into the field. The trust bar flips and **promote**
+    enables.
+11. Click **promote** → the panel logs `promoted`, the quarantine list empties,
+    and the lesson is now recallable. Mention that resolve + distil + reinforce
+    + reflect committed as one transaction across four tables in three regions.
 
 **Act IV — Time-travel**
-10. Drag the **memory time-travel** slider from *now* toward *10 min ago*; the count drops as recent memories fall outside the snapshot.
+12. Drag the **memory time-travel** slider from *now* toward *10 min ago*; the count drops as recent memories fall outside the snapshot.
 
 **Act V — Close**
-11. Switch to the **Architecture** tab: spec table → diagram → residency proof (3s).
-12. End on repo + live URL.
+13. Switch to the **Architecture** tab: spec table → diagram → residency proof (3s).
+14. End on repo + live URL.
 
 ---
 
@@ -104,6 +116,12 @@ live makes the delta bigger.)
       against cluster `blackbox` (v26.2.1, ap-south-1/eu-west-1/us-east-1);
       added to DEVPOST.md and README.md tools list
 - [ ] Least-privilege applied (IAM `iam-bedrock-policy.json`; MCP acct → Cluster Operator)
+- [ ] `BLACKBOX_OPERATOR_TOKEN` set in Vercel (Act III needs it) and the value on
+      your clipboard for the recording. Leave it UNSET if you would rather the
+      public demo never learn anything at all — quarantine still works either way.
+- [ ] `CRON_SECRET` set in Vercel so the nightly memory-decay pass can run
+- [ ] Only quote numbers the live site shows. Vector search is ~0.9 s on managed
+      Cloud; **136 ms is the local-rig drill figure** and must be said as such.
 - [ ] Architecture diagram attached / linked
 - [ ] `FEEDBACK.md` linked (tool feedback — bonus with the judges)
 - [ ] Re-check the Devpost project gallery weekly for the competitor field

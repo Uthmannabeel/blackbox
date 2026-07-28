@@ -9,19 +9,30 @@ the very failures it records. We demonstrate it with the hardest client an
 agent memory can have — an incident-response agent that must keep remembering,
 learning, and reasoning while a cloud region burns underneath it.
 
-Two properties most agent memories lack, working together:
+Three properties most agent memories lack, working together:
 
 - **Survivability** — kill an entire region and every memory stays readable and
   writable, strongly consistent, with recall served from surviving replicas.
 - **Hygiene** — a gated write path: learned knowledge is content-filtered,
-  deduplicated into existing runbooks, contradiction-checked, confidence-scored,
+  consolidated into existing runbooks, contradiction-checked, confidence-scored,
   reinforced when it proves out, and decayed when it never earns trust. An
   append-only store is a log; this is a memory.
+- **A trust boundary that fails closed** — the console is public and has no
+  login, so what an anonymous session teaches the agent is quarantined: stored
+  and auditable, never recalled until an operator promotes it.
 
 We prove it, not claim it: in our demo we kill every node in the database's
-**primary region on camera** with 3,500+ memories loaded -- **zero memories lost**,
-recall still answering in **~140 ms** (including rows homed in the dead region),
-and writes to the dead region still committing.
+**primary region on camera** with 3,500+ memories loaded -- **zero memories
+lost**, recall still answering (including rows homed in the dead region), and
+writes to the dead region still committing.
+
+Measured, with conditions stated: **3,657 memories** on the live cluster;
+CockroachDB vector search **~0.9 s** for a consolidated top-5 across three
+regions (Bedrock's embedding call is timed separately at ~150 ms and reported
+separately). The **136 ms** figure quoted for the region-kill drill is from the
+9-node **local** `cockroach demo` rig, where individual nodes can be killed —
+managed Cloud does not expose per-node kill. It is labelled that way everywhere
+it appears.
 
 > Built for the **CockroachDB x AWS "Build with Agentic Memory" Hackathon.**
 >
@@ -93,13 +104,35 @@ a CockroachDB table (see `db/schema.sql`):
   Consul outage, Knight Capital, and more), ingested with first-party source
   links (`npm run db:ingest-postmortems`); when one is recalled, the console's
   evidence ledger links to the original incident report.
-- **Semantic / procedural** -- `runbooks`: how to fix classes of problem.
-- **Working + long-term stream** -- `agent_memory`: the agent's observations,
-  actions, and reflections, importance-weighted for recall.
+  Episodic recall **consolidates**: a fleet repeats its failure modes, so the
+  five nearest *rows* are often five copies of one memory. Recall clusters the
+  repeats, returns five distinct lessons, and reports recurrence ("seen 72x") —
+  which is the more useful signal anyway.
+- **Semantic / procedural** -- `runbooks`: how to fix classes of problem, with
+  hygiene state (`source`, `status`, `origin`, `confidence`).
+- **Semantic memory** -- `agent_memory`: the agent's reflections and insights.
+  Every row here carries a real embedding and is recallable by similarity.
+- **Conversational stream** -- `agent_stream`: operator turns, agent replies,
+  tool observations and actions. High volume, read by recency, **no vector
+  column**. Splitting this out of `agent_memory` matters: the two have different
+  access patterns, and keeping them together forced unembedded rows to carry a
+  placeholder zero vector that polluted the vector index and had to be filtered
+  out by a predicate the index could not serve.
 - **Structured live state** -- `incident_state`: the transactional source of truth
   for an in-flight incident.
 
-Every table is `REGIONAL BY ROW` with a region-prefixed vector index.
+Every table is `REGIONAL BY ROW`; the two vector-bearing tables carry a
+region-prefixed vector index.
+
+### The write path is guarded
+
+The public console has no login, and "an agent that learns" plus "anyone can
+write" is how a shared memory gets poisoned. Trust is decided at the HTTP
+boundary and **fails closed**: without `BLACKBOX_OPERATOR_TOKEN` every session
+is anonymous, and anything the agent learns is **quarantined** — stored,
+auditable, listed in the console, and never recalled until an operator promotes
+it. Resolving an incident (resolve + distil + reinforce + reflect) commits as a
+single serializable transaction across four tables in three regions.
 
 ---
 
@@ -184,14 +217,39 @@ cluster, enabling the Managed MCP Server, and requesting Bedrock model access.
 ## Tests
 
 ```bash
-npm test          # vitest -- runs the full suite in offline mock mode
+npm test          # 58 unit tests, offline -- no cloud, no keys
+
+# 9 integration tests against a REAL CockroachDB cluster. Opt-in, because they
+# write to whatever DATABASE_URL points at. Every row is tagged per run and
+# deleted in afterAll, so they leave no residue.
+BLACKBOX_INTEGRATION_DB=1 DATABASE_URL=postgresql://... npm test
 ```
 
-Covers embedding determinism + similarity ordering, semantic recall over the
-seeded memory, the agent's reason/recall/act loop, and API rate limiting.
+Unit tests cover embedding determinism and similarity ordering, the hygiene
+policy (content gate, consolidation, contradiction), episode consolidation, the
+trust boundary and quarantine/promotion, learning-loop atomicity, the agent's
+reason/recall/act loop, and API rate limiting.
+
+The integration tests exist because the unit suite exercises
+`MockMemoryService` — it shares the pure policy code but none of the SQL. These
+run the real `MemoryService`: table routing, the vector operators, consolidated
+recall, the transactional learning loop, quarantine, input bounding, and
+`REGIONAL BY ROW` pinning of `incident_state`.
 
 ## Production hardening
 
+- **Fail-closed trust boundary**: unauthenticated sessions cannot write into
+  shared recall; what they teach is quarantined until an operator promotes it.
+  Promotion is the one privileged, state-changing route.
+- **Atomic learning loop**: resolve, distil, reinforce and reflect commit in one
+  serializable transaction — no half-written lessons.
+- **Scheduled memory decay** (nightly Vercel cron, guarded by `CRON_SECRET`), so
+  knowledge that never earns trust actually ages out.
+- **Bounded inputs from model output**: service names from the LLM are
+  normalised, character-restricted and length-capped before they can create rows.
+- **Honest latency instrumentation**: `/api/stats` warms the pool before timing
+  and reports the Bedrock embedding and the CockroachDB vector search
+  separately, so neither is blamed for the other's work.
 - Read-only, statement-validated cluster introspection via MCP (rejects
   multi-statement SQL and DML smuggled through a CTE)
 - Rate limiting keyed to the platform-trusted client IP; input validation on the

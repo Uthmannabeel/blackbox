@@ -31,11 +31,22 @@ export async function GET() {
       }));
     }
 
-    const body = { events, composition };
+    // Knowledge written by unauthenticated sessions, held out of recall until
+    // an operator promotes it. Exposed read-only: quarantine is only credible
+    // if you can see what is sitting in it.
+    const quarantined = (await memory.listQuarantined(10)).map((r) => ({
+      id: r.id,
+      title: r.title,
+      body: r.body,
+      origin: r.origin,
+      confidence: r.confidence,
+    }));
+
+    const body = { events, composition, quarantined };
     cache = { at: Date.now(), body };
     return NextResponse.json(body);
   } catch (err) {
     console.error("[/api/hygiene]", err);
-    return NextResponse.json({ events: [], composition: null });
+    return NextResponse.json({ events: [], composition: null, quarantined: [] });
   }
 }

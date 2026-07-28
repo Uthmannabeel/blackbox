@@ -6,32 +6,59 @@
 ---
 
 ## Tagline
-We kill the agent's primary database region on camera: zero of 10,000 memories
-lost, recall still answering in 136 ms. Survivable, hygienic agentic memory —
-demonstrated by an incident agent that keeps remembering through the crash
-it's diagnosing.
+We kill the agent's primary database region on camera and it loses **zero of
+3,657 memories** — recall keeps answering, including rows homed in the region
+that just died. Survivable, hygienic agentic memory, demonstrated by an
+incident agent that keeps remembering through the crash it's diagnosing.
+
+## The numbers, and exactly where each one comes from
+Every figure below is reproducible on the live demo or by running the repo. We
+publish the measurement conditions because a number without them is a claim.
+
+| Figure | Value | Measured where |
+| --- | --- | --- |
+| Memories on record | **3,657** | Live cluster, `/api/stats`. Incidents + runbooks + semantic memory + conversational stream |
+| CockroachDB vector search, top-5 consolidated | **~0.9 s** | Live 3-region CockroachDB Cloud Standard cluster, warm instance, `searchMs` on `/api/stats` |
+| Bedrock Titan embedding | **~150 ms** | Same request, reported separately as `embedMs` so the database is judged on its own work |
+| End-to-end recall | **~1.05 s** warm / **~4.7 s** first request on a cold serverless instance | `recallMs` = `embedMs + searchMs` |
+| Region-kill drill | **primary region killed, top-5 recall identical, 136 ms** | 9-node **local** `cockroach demo` rig, where individual nodes can be killed. Managed Cloud does not expose per-node kill |
+
+The drill number is from the local rig and is labelled that way everywhere it
+appears, including on the site. The survivability *claim* is what carries the
+submission; the millisecond figure is a footnote to it.
 
 ## How this maps to the judging criteria
 A skim, one line each — the rest of this page is the evidence.
 - **Agentic memory design** — CockroachDB is the agent's durable, multi-region
-  memory of record across four surfaces (episodic incidents, procedural
-  runbooks, a working-memory stream, and transactional live incident state) —
-  with a **hygienic write path**: learned knowledge is gated, deduplicated,
-  contradiction-checked, confidence-scored, reinforced, and decayed. Vectors
-  *and* strongly-consistent state in one database, grounded in 25 real public
-  postmortems with provenance links. Not toy queries, not synthetic-only data,
-  and not an append-only log.
+  memory of record across five surfaces, each modelled for its own access
+  pattern: episodic incidents and procedural runbooks (vector-indexed),
+  semantic memory (vector-indexed), the conversational stream (append-only, no
+  vector), and transactional live incident state. Learned knowledge passes a
+  **hygienic write path** — gated, consolidated, contradiction-checked,
+  confidence-scored, reinforced, quarantined when untrusted, and decayed
+  nightly. Episodic recall **consolidates recurring failure signatures** rather
+  than returning the same memory five times, and reports recurrence as evidence
+  ("seen 72×"). Grounded in 25 real public postmortems with provenance links.
 - **Technical implementation** — a typed reason/recall/act loop over Bedrock;
-  distributed vector index + Managed MCP Server; parameterised SQL,
-  statement-validated read-only cluster access, and a real test suite.
+  distributed vector index + Managed MCP Server; parameterised SQL; the
+  learning loop runs as **one serializable transaction** across four tables in
+  three regions; 58 unit tests plus 9 integration tests that execute against a
+  real cluster.
 - **Real-world impact** — answers the on-call's first question, "have we seen
-  this before?", in milliseconds — and keeps answering through a region
-  outage. Every resolution compounds into a runbook the next incident recalls.
+  this before?", in about a second — and keeps answering through a region
+  outage. Recurrence counts turn a repetitive corpus into a signal an on-call
+  actually wants. Every resolution compounds into a runbook the next incident
+  recalls.
 - **Creativity & originality** — memory infrastructure that survives the
   failure it is recording, audits its own writes, and can diagnose its own
   cluster mid-outage. The agent is the demo; the memory is the product.
-- **Production readiness** — durable rate limiting, least-privilege keys, honest
-  instrumentation, no silent memory loss. We red-teamed our own build (below).
+- **Production readiness** — a **trust boundary that fails closed**: the public
+  console is unauthenticated, so anything it teaches the agent is quarantined —
+  stored and auditable, never recalled by anyone else until an operator
+  promotes it. Plus durable rate limiting, least-privilege keys, scheduled
+  memory decay, bounded inputs from model output, and latency instrumentation
+  that reports the database and the model separately instead of blaming one for
+  the other. We red-teamed our own build and fixed what we found (below).
 
 ## Inspiration
 Every AI agent demo has "memory" — until the database it depends on has a bad
@@ -48,9 +75,15 @@ agent working the very outage that just took down one of its own regions.
 ## What it does
 BlackBox's memory layer serves an incident agent that triages, diagnoses, and
 helps mitigate production incidents:
-- **Recalls institutional memory at scale** — "have we seen this before?" —
-  semantic search over a 3,500+ incident corpus via CockroachDB's distributed
-  vector index (~140ms top-5 on the local rig; ~1-2s cross-region on managed Cloud).
+- **Recalls institutional memory at scale, consolidated** — "have we seen this
+  before?" — semantic search over a 3,500+ incident corpus via CockroachDB's
+  distributed vector index (**~0.9 s** top-5 on the live 3-region managed
+  cluster; 136 ms on the local rig). Crucially it returns five *distinct*
+  lessons, not the five nearest rows: a real fleet fails the same way over and
+  over, so the raw neighbours of "connection pool exhaustion" were five copies
+  of one incident differing only in a p99 number. Recall now clusters repeats
+  and reports the count — "seen 72×" — which is the thing an on-call actually
+  wants to know.
   The episodic store isn't purely synthetic: it includes **25 real public
   postmortems** (GitLab 2017, AWS S3 2017, Cloudflare's regex outage, GitHub's
   2018 split-brain, Meta's BGP withdrawal, Roblox's 73-hour Consul outage,
@@ -62,8 +95,18 @@ helps mitigate production incidents:
   knowledge instead of duplication, contradiction detection (disagreeing fixes
   enter on probation at lower confidence), reinforcement when a recalled
   runbook feeds a real resolution, and decay/archival for knowledge that never
-  earns trust. Every decision is logged to an auditable hygiene ledger you can
+  earns trust (a nightly scheduled pass, not a script somebody has to remember
+  to run). Every decision is logged to an auditable hygiene ledger you can
   watch live in the console. Memory that compounds — and self-corrects.
+- **Refuses to learn from strangers.** The public console has no login, and a
+  learning loop plus an open write path is how a shared memory gets poisoned.
+  Trust is decided at the HTTP boundary and **fails closed**: an unauthenticated
+  session can use the agent in full, but anything it teaches is **quarantined** —
+  written, auditable, visible in the hygiene panel, and never recalled by
+  anyone until an operator promotes it. The console tells you which kind of
+  session you are in. The whole learning loop — resolve, distil, reinforce,
+  reflect — commits as **one serializable transaction**, so a lesson is never
+  half-written.
 - **Reasons and acts** through a tool-using loop: recall → hypothesize →
   inspect the live cluster → open an incident → track state → resolve.
 - **Survives region failure — for real.** Our demo kills every node in the
@@ -191,6 +234,40 @@ judge would (rightly) attack:
   proving surviving regions answer), with real node-kill shown on the local rig.
 - Plus parameterised SQL throughout, CSP + security headers, input validation,
   exponential backoff on embedding throttles, and a test suite.
+
+### The second review — what it found, and what we did
+We ran the review again, harder, against the *live* cluster rather than the
+code, and it found five things worth failing us for. All five are fixed; we
+list them because a submission that only reports its wins is not a production
+readiness story.
+
+- **A recall tool that could never return anything.** Conversational rows and
+  semantic memories shared one table. The conversational rows had no useful
+  embedding, so they were stored with a placeholder zero vector to satisfy the
+  vector index, then excluded from recall by a `kind NOT IN (...)` predicate the
+  index cannot serve. On the live corpus that predicate excluded **100 of 100
+  rows** — `recall_memories` was structurally incapable of returning a result.
+  Fixed by modelling the two access patterns as two tables, so an unembedded row
+  can no longer reach the semantic store at all.
+- **Recall that returned one memory five times.** 3,526 incidents span 661
+  distinct titles. Fixed with consolidation plus a recurrence count, sized from
+  measurement (over-fetch 40 → 1 distinct episode; 150 → 5; 300+ buys nothing).
+- **A learning loop with no transaction**, on a hackathon about a database that
+  sells serializable transactions. Production had 3 hygiene events and 1 learned
+  runbook with **zero** matching reflections — the last write had silently never
+  landed. Now one transaction across four tables in three regions.
+- **An open write path into shared memory.** Fixed with a fail-closed trust
+  boundary and quarantine (above).
+- **A latency number that measured the wrong thing.** `/api/stats` constructed
+  the service and *then* started the stopwatch, so a cold instance billed TLS
+  handshake and pool setup to "recall". Now the pool is warmed before timing,
+  the beam size ships in the connection startup packet instead of costing a
+  `BEGIN`/`SET LOCAL`/`COMMIT` per query, and embedding and search are reported
+  separately.
+- **A test suite that tested the mock.** Not one test imported the real
+  `MemoryService`, so every SQL statement in the file that *is* the submission
+  was uncovered. Added 9 integration tests that run against a real cluster
+  (opt-in, self-cleaning) — all green.
 
 ## What we learned
 Agent memory is a database problem, not a prompt problem. The properties that
