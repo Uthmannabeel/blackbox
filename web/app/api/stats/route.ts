@@ -29,8 +29,10 @@ const PROBE = "latency spike and connection pool exhaustion";
  * Bedrock round trip that turns the question into a vector. `recallMs` is the
  * honest end-to-end sum. Reporting only the total made the database look slow
  * for work it never did — most of that number was Bedrock, and on a cold
- * serverless instance, connection setup. We warm the pool before timing so the
- * TLS handshake is not billed to "recall" either.
+ * serverless instance, connection setup. We warm the pool and the search path
+ * before timing, so neither the TLS handshake nor cold-start query planning is
+ * billed to "recall". These are steady-state numbers and the docs say so; the
+ * cold-start figure is published alongside rather than quietly excluded.
  */
 export async function GET() {
   if (cache && Date.now() - cache.at < CACHE_TTL) {
@@ -67,7 +69,15 @@ export async function GET() {
     await embed(PROBE);
     const embedMs = Date.now() - tEmbed;
 
-    // The embedding is now cached per-instance, so this call times the vector
+    // Warm the search path too, then time the next one. On a cold serverless
+    // instance the first vector query pays query planning and C-SPANN metadata
+    // loading — around 5s against the managed cluster, versus ~0.9s steady
+    // state. Timing that first call reports cold-start cost as if it were
+    // search cost. What we publish is the steady-state figure, and the cold
+    // number is documented rather than hidden (see DEVPOST.md).
+    await memory.recallSimilarIncidents(PROBE, 5);
+
+    // The embedding is cached per-instance by now, so this times the vector
     // search itself rather than repeating the Bedrock round trip.
     const tSearch = Date.now();
     await memory.recallSimilarIncidents(PROBE, 5);

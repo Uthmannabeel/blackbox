@@ -18,9 +18,10 @@ publish the measurement conditions because a number without them is a claim.
 | Figure | Value | Measured where |
 | --- | --- | --- |
 | Memories on record | **3,657** | Live cluster, `/api/stats`. Incidents + runbooks + semantic memory + conversational stream |
-| CockroachDB vector search, top-5 consolidated | **~0.9 s** | Live 3-region CockroachDB Cloud Standard cluster, warm instance, `searchMs` on `/api/stats` |
+| CockroachDB vector search, top-5 consolidated | **~0.9 s** steady state | Live 3-region CockroachDB Cloud Standard cluster, `searchMs` on `/api/stats` |
+| Same search, first query on a cold serverless instance | **~5 s** | Query planning + C-SPANN metadata loading. Real, and stated rather than hidden — `/api/stats` warms the path before timing so the published figure is steady state |
 | Bedrock Titan embedding | **~150 ms** | Same request, reported separately as `embedMs` so the database is judged on its own work |
-| End-to-end recall | **~1.05 s** warm / **~4.7 s** first request on a cold serverless instance | `recallMs` = `embedMs + searchMs` |
+| End-to-end recall | **~1.05 s** steady state | `recallMs` = `embedMs + searchMs` |
 | Region-kill drill | **primary region killed, top-5 recall identical, 136 ms** | 9-node **local** `cockroach demo` rig, where individual nodes can be killed. Managed Cloud does not expose per-node kill |
 
 The drill number is from the local rig and is labelled that way everywhere it
