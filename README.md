@@ -2,6 +2,8 @@
 
 **Survivable, hygienic agentic memory — proven under fire.**
 
+**▶ Demo video (3 min):** https://youtu.be/4KUu47gdhL0 · **Live demo:** https://blackbox-web-eight.vercel.app
+
 BlackBox is agentic-memory infrastructure: a memory layer for AI agents that is
 **globally available, strongly consistent, region-pinned, and self-auditing** on
 top of CockroachDB. Like an aircraft's flight recorder, it is built to survive
