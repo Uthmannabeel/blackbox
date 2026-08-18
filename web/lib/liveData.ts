@@ -76,5 +76,13 @@ function makeFetcher<T>(url: string): (fresh?: boolean) => Promise<T> {
   };
 }
 
+export interface DrillsResponse {
+  drills: number;
+  since: string | null;
+  lastAt: string | null;
+  memoriesLost: number;
+}
+
 export const fetchRegions = makeFetcher<RegionsResponse>("/api/regions");
 export const fetchStats = makeFetcher<StatsResponse>("/api/stats");
+export const fetchDrills = makeFetcher<DrillsResponse>("/api/drills");

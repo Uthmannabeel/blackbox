@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { RegionMap } from "./RegionMap";
-import { fetchRegions, fetchStats } from "@/lib/liveData";
+import { fetchRegions, fetchStats, fetchDrills, type DrillsResponse } from "@/lib/liveData";
 import { DEMO_REGIONS, shortRegion } from "@/lib/demoData";
 
 interface MapNode {
@@ -46,6 +46,7 @@ const FALLBACK_REGIONS: MapNode[] = DEMO_REGIONS.map((r) => ({
 export function CapabilityBento() {
   const [nodes, setNodes] = useState<MapNode[]>(FALLBACK_REGIONS);
   const [stats, setStats] = useState<Stats>({ total: null, searchMs: null });
+  const [drills, setDrills] = useState<DrillsResponse | null>(null);
 
   useEffect(() => {
     let mounted = true;
@@ -66,6 +67,12 @@ export function CapabilityBento() {
         // Primary region at the top of the triangle (index 1).
         const ordered = [...mapped].sort((a, b) => Number(a.primary ?? false) - Number(b.primary ?? false));
         setNodes(ordered.length === 3 ? [ordered[0], ordered[2], ordered[1]] : mapped);
+      })
+      .catch(() => {});
+
+    fetchDrills()
+      .then((d) => {
+        if (mounted) setDrills(d);
       })
       .catch(() => {});
 
@@ -108,6 +115,14 @@ export function CapabilityBento() {
           <span>last validated drill · 9-node local rig</span>
           <span>primary region killed · top-5 recall identical · 136 ms</span>
         </div>
+        {drills !== null && drills.drills > 0 ? (
+          <div className="b-fact">
+            <span>automated daily drills · production cluster</span>
+            <span>
+              {drills.drills} survived · {drills.memoriesLost} memories lost
+            </span>
+          </div>
+        ) : null}
         <Link href="/survivability" className="b-link">
           Watch the failure drill →
         </Link>
