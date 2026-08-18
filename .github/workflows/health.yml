@@ -1,0 +1,30 @@
+name: Live demo health probe
+
+# Uptime guard for the judging window: fails (and emails the repo owner) if the
+# live demo is unreachable or its stats look degraded.
+on:
+  schedule:
+    - cron: "0 6,18 * * *"
+  workflow_dispatch:
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Probe /api/stats
+        run: |
+          set -e
+          STATS=""
+          for i in 1 2 3; do
+            STATS=$(curl -sS --max-time 30 https://blackbox-web-eight.vercel.app/api/stats) && break
+            echo "attempt $i failed; retrying" >&2
+            sleep 20
+          done
+          echo "$STATS"
+          MEM=$(echo "$STATS" | jq -r '.totalMemories')
+          LIVE=$(echo "$STATS" | jq -r '.regionsLive')
+          TOTAL=$(echo "$STATS" | jq -r '.regionsTotal')
+          [ "$MEM" -gt 3000 ] || { echo "::error::totalMemories=$MEM (expected >3000) — cluster credits exhausted or DB unreachable?"; exit 1; }
+          { [ "$LIVE" = "3" ] && [ "$TOTAL" = "3" ]; } || { echo "::error::regions $LIVE/$TOTAL (expected 3/3)"; exit 1; }
+      - name: Probe homepage
+        run: curl -sS -f -o /dev/null --max-time 30 https://blackbox-web-eight.vercel.app/
