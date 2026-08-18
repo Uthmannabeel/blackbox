@@ -24,8 +24,11 @@ was last verified against the **live** deployment.
   retired token verifiably rejected (401) and the active token accepted by the
   live promote endpoint. Rotation is a two-minute env-swap + redeploy.
 - **AWS credential scope** (2026-08-18) — the production AWS principal was
-  probed and is denied on IAM, S3, and Lambda; its effective surface is
-  Bedrock invocation only.
+  probed and is denied on IAM, S3, and Lambda. Its former
+  `AmazonBedrockFullAccess` (`bedrock:*` on `*`) has been replaced with the
+  explicit invoke-only, model-scoped policy from
+  `infra/iam-bedrock-policy.json`; Bedrock invocation and the full preflight
+  re-verified green after the swap.
 - **Trust boundary** (2026-08-18) — unauthenticated promote rejected (401);
   anonymous sessions report `trusted=false`; quarantine list auditable.
 - **Full preflight** (2026-08-18) — all 25 checks green against production
@@ -58,7 +61,3 @@ was last verified against the **live** deployment.
 - **Frontend is single-region** — the database survives a region failure; the
   web tier in front of it does not. A multi-region frontend (or static
   fallback status page) would close the asymmetry.
-- **Bedrock permission pinning** — the production principal is Bedrock-only,
-  but attaching the explicit invoke-only, model-scoped policy
-  (`infra/iam-bedrock-policy.json`) requires account-console access and is
-  pending.
