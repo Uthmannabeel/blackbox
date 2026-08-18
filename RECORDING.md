@@ -113,7 +113,7 @@ live makes the delta bigger.)
 - [ ] Video link in Devpost + README
 - [x] Docs name the tools (Distributed Vector Indexing + Managed MCP Server + Agent Skills Repo + ccloud CLI; Bedrock)
 - [x] ccloud CLI (4th tool): auth login done, `cluster-info.ps1` verified live
-      against cluster `blackbox` (v26.2.1, ap-south-1/eu-west-1/us-east-1);
+      against the project's 3-region cluster (v26.2, ap-south-1/eu-west-1/us-east-1);
       added to DEVPOST.md and README.md tools list
 - [ ] Least-privilege applied (IAM `iam-bedrock-policy.json`; MCP acct → Cluster Operator)
 - [ ] `BLACKBOX_OPERATOR_TOKEN` set in Vercel (Act III needs it) and the value on

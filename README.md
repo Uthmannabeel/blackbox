@@ -85,7 +85,7 @@ stitching a vector DB to a state store to a cache.
 - **Distributed Vector Indexing** -- semantic memory over incidents, runbooks, and the agent's thought stream (`db/schema.sql`).
 - **Cloud Managed MCP Server** -- the agent introspects the live cluster it operates (schema, health, running queries) as a tool during reasoning.
 - **Agent Skills Repo** -- `diagnose_memory` executes the official `reviewing-cluster-health` skill (Standard-tier checks) from [cockroachlabs/cockroachdb-skills](https://github.com/cockroachlabs/cockroachdb-skills) against its own memory cluster, citing the skill in its diagnosis (vendored with provenance in `skills/cockroachdb/`).
-- **`ccloud` CLI** -- used to inspect the live multi-region cluster (`infra/ccloud/cluster-info.ps1`); verified against cluster `blackbox` (id `5675ebfa-276c-40cb-87a2-2c334935aeb1`, v26.2.1, regions ap-south-1 / eu-west-1 / us-east-1).
+- **`ccloud` CLI** -- used to inspect the live multi-region cluster (`infra/ccloud/cluster-info.ps1`); verified against the project's 3-region cluster (CockroachDB v26.2, regions ap-south-1 / eu-west-1 / us-east-1).
 
 **AWS (using 1; 1 required):**
 - **Amazon Bedrock** -- Claude for reasoning + Titan Text Embeddings v2 (1024-dim) for memory embeddings.

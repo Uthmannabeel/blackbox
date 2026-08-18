@@ -17,7 +17,7 @@ Setup before recording:
 > it fails, exactly when you need it: mid-outage. BlackBox is agentic memory
 > that survives the crash it's recording — and audits every write it lets in.
 > I'll prove it with an incident agent working a live outage: I'll kill a whole
-> region on camera, and it will not lose one of its three thousand six hundred
+> region on camera, and it will not lose one of its three and a half thousand
 > memories."
 
 (Downtime figure: ITIC 2024 Hourly Cost of Downtime Survey — >90% of mid/large

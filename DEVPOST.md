@@ -143,9 +143,9 @@ helps mitigate production incidents:
   own memory cluster and cites it in the diagnosis; the skill is vendored with
   provenance in `skills/cockroachdb/` (Apache-2.0)
 - ccloud CLI — used to provision and inspect the multi-region cluster
-  (`infra/ccloud/cluster-info.ps1`); verified live against cluster `blackbox`
-  (id `5675ebfa-276c-40cb-87a2-2c334935aeb1`, v26.2.1, regions ap-south-1 /
-  eu-west-1 / us-east-1)
+  (`infra/ccloud/cluster-info.ps1`); verified live against the project's
+  3-region cluster (CockroachDB v26.2, regions ap-south-1 / eu-west-1 /
+  us-east-1)
 
 **AWS (1 required; Bedrock is the primary service):**
 - Amazon Bedrock (Claude reasoning + Titan embeddings)
@@ -250,8 +250,8 @@ readiness story.
   rows** — `recall_memories` was structurally incapable of returning a result.
   Fixed by modelling the two access patterns as two tables, so an unembedded row
   can no longer reach the semantic store at all.
-- **Recall that returned one memory five times.** 3,526 incidents span 661
-  distinct titles. Fixed with consolidation plus a recurrence count, sized from
+- **Recall that returned one memory five times.** At review time the corpus
+  held 3,526 incidents across 661 distinct titles. Fixed with consolidation plus a recurrence count, sized from
   measurement (over-fetch 40 → 1 distinct episode; 150 → 5; 300+ buys nothing).
 - **A learning loop with no transaction**, on a hackathon about a database that
   sells serializable transactions. Production had 3 hygiene events and 1 learned
