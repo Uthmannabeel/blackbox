@@ -102,7 +102,7 @@ live makes the delta bigger.)
 
 ## 5. After recording
 - Trim to **under 3:00** (hard limit). If over, cut Act I narration first.
-- Upload **unlisted** to YouTube/Vimeo.
+- Upload **public** to YouTube/Vimeo — the Devpost rules require a public video, not unlisted.
 - Paste the link into: `DEVPOST.md` (Links), `README.md` (top), and the Devpost submission form.
 
 ---
