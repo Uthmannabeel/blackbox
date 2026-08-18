@@ -51,7 +51,11 @@ was last verified against the **live** deployment.
   attribution.
 - **Heuristic hygiene** — dedup, contradiction checks, and content filtering
   are deterministic rules plus embedding distance; semantically subtle
-  contradictions can pass. Decay is nightly, not usage-aware.
+  contradictions can pass. Decay is nightly, not usage-aware. Mitigation now
+  standing: the public **red-team challenge** (`/poison`) runs every visitor
+  attempt through the real untrusted write path and publishes each verdict and
+  a live recall-proof — attempts and breaches (kept at zero) are public
+  counters, so this limitation is continuously exercised rather than assumed.
 - **Embedding model lock-in** — Titan v2 1024-dim is structural
   (`VECTOR(1024)`); a model change requires a full re-embed. An
   embedding-version column is the planned escape hatch.
