@@ -39,7 +39,7 @@ export function SiteFooter() {
         </div>
         <div className="foot-bottom">
           <span>Built for the CockroachDB &times; AWS &ldquo;Build with Agentic Memory&rdquo; hackathon.</span>
-          <span className="mono">Apache-2.0</span>
+          <span className="mono">MIT</span>
         </div>
       </div>
     </footer>

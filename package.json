@@ -3,7 +3,7 @@
   "version": "0.1.0",
   "private": true,
   "description": "BlackBox — an SRE incident-response agent whose memory survives the crash. Built on CockroachDB (regional-by-row distributed vector memory + Managed MCP) and AWS Bedrock.",
-  "license": "Apache-2.0",
+  "license": "MIT",
   "type": "module",
   "workspaces": [
     "packages/*",

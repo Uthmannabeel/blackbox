@@ -108,7 +108,7 @@ live makes the delta bigger.)
 ---
 
 ## 6. Final submission checklist
-- [ ] Public repo, Apache-2.0 — github.com/Uthmannabeel/blackbox
+- [ ] Public repo, MIT — github.com/Uthmannabeel/blackbox
 - [ ] Live demo URL — blackbox-web-eight.vercel.app
 - [ ] Video link in Devpost + README
 - [x] Docs name the tools (Distributed Vector Indexing + Managed MCP Server + Agent Skills Repo + ccloud CLI; Bedrock)
