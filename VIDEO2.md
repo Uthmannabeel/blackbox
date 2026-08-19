@@ -1,4 +1,4 @@
-# BlackBox — extended demo script v1 (target 4:30, ceiling 5:00)
+# BlackBox — extended demo script v2 (target 5:20, ceiling 6:00)
 
 The submitted 3-minute video stays canonical for Devpost. This extended cut
 covers what was built after it: the six public proofs. Same rules — dark
@@ -73,15 +73,37 @@ Click **Run the drill**; narrate while events stream in.
 
 Point at the retry lines (amber) and the 6/6 verdict.
 
-### 3:40–4:20 — The console, quickly
-One recall on /console (it's warm): point at evidence ledger, ×N recurrence,
-source ↗ links.
+### 3:40–4:55 — The console test, in full
+Switch to **/console** (pre-warmed; the database-deletion warm-up turn is in
+the scroll-back).
 
-> "And underneath it all, the original demo still stands: an incident agent
-> with distinct-episode recall, recurrence counts, provenance-linked real
-> postmortems — on Claude via Bedrock, over one system of record."
+1. Click the suggested incident — *"checkout-api p99 latency just jumped to
+   8s and connections are maxed out."* While the trace streams:
 
-### 4:20–4:45 — Close, on /status then the README
+> "Now the agent itself. Real Claude on Bedrock, over the live cluster. Watch
+> the trace: recall similar incidents, recall runbooks, open the incident,
+> update its state — every step recorded to durable memory as it happens."
+
+2. When the reply lands, point at the **evidence ledger**:
+
+> "Eight distinct memories — not one memory eight times. This signature has
+> recurred seventy-plus times; the ledger says so, with the region each memory
+> physically lives in and its distance. That recurrence count is the single
+> most useful thing institutional memory can hand an on-call engineer."
+
+3. Scroll up to the warm-up turn's **source ↗** links, then back:
+
+> "And it isn't synthetic — ask about a deleted production database and it
+> cites GitLab's actual 2017 postmortem. The link goes to the original."
+
+4. Click **"Is your memory OK? Diagnose it."**:
+
+> "Last, the agent turns its tools on itself — and since submission this runs
+> through CockroachDB's Managed MCP Server in production. It executes the
+> official cluster-health Agent Skill against the very database that stores
+> its memory: three regions serving, survival goal *region*, memory intact."
+
+### 4:55–5:20 — Close, on /status then the README
 Back to /status, then flash the terminal-verification block.
 
 > "Every number you've seen is public — six endpoints you can curl yourself,
@@ -94,6 +116,11 @@ Back to /status, then flash the terminal-verification block.
 
 ## Pre-record checklist
 - [ ] Tell the assistant "recording v2" → fresh preflight + demo warm-up
+- [ ] Console warm-ups in the SAME tab you record: (1) the database-deletion
+      question — *"An engineer accidentally deleted the production database
+      data directory while troubleshooting replication lag. Have we seen
+      anything like this before?"* — so its source ↗ ledger is in scroll-back;
+      (2) one throwaway incident so the first on-camera recall is fast
 - [ ] Operator token NOT needed this time (no promote on camera) — the cert
       registry already shows certificate #1
 - [ ] /status must show the green banner before you start
