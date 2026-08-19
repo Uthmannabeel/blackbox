@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import Link from "next/link";
+import { WarRoom } from "@/app/components/WarRoom";
 
 export const metadata: Metadata = {
   title: "Product — how the BlackBox agent works",
@@ -193,6 +194,24 @@ export default function Product() {
               Try the agent live
             </Link>
           </div>
+        </div>
+      </section>
+
+      <section className="bordered">
+        <div className="wrap">
+          <div className="sec-head">
+            <div className="eyebrow">The war room</div>
+            <h2>Two agents, one memory, zero lost updates.</h2>
+            <p>
+              Multi-agent systems fail at the memory, not the model: two agents read the same
+              state, both write, and one&rsquo;s work silently vanishes. This drill makes two
+              agent workers — a responder and a postmortem scribe — collide on the same
+              incident-state row on purpose, holding each read-modify-write open so they
+              genuinely interleave. Serializable isolation turns every would-be lost update
+              into a retry, and the final count proves nothing vanished.
+            </p>
+          </div>
+          <WarRoom />
         </div>
       </section>
     </>

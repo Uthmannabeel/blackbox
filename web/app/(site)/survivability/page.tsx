@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { REPO } from "@/lib/demoData";
+import { LatencyRace } from "@/app/components/LatencyRace";
 
 export const metadata: Metadata = {
   title: "Survivability — we killed the primary region",
@@ -119,6 +120,23 @@ export default function Survivability() {
               Read the chaos rig
             </a>
           </div>
+        </div>
+      </section>
+
+      <section className="bordered">
+        <div className="wrap">
+          <div className="sec-head">
+            <div className="eyebrow">The race</div>
+            <h2>Three regions. One answer. Geography picks the podium.</h2>
+            <p>
+              One query, embedded once, raced against all three regional gateways of the same
+              cluster simultaneously. Every leg is a follower read served from that
+              region&rsquo;s local replicas, and <span className="mono">gateway_region()</span>{" "}
+              confirms where each answer entered. The latencies differ by an ocean; the answers
+              never differ at all.
+            </p>
+          </div>
+          <LatencyRace />
         </div>
       </section>
     </>

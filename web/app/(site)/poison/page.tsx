@@ -1,5 +1,6 @@
 import type { Metadata } from "next";
 import { PoisonChallenge, PoisonStats } from "@/app/components/PoisonChallenge";
+import { CertRegistry } from "@/app/components/CertRegistry";
 
 export const metadata: Metadata = {
   title: "Poison me — the public red-team challenge",
@@ -32,6 +33,12 @@ export default function Poison() {
       <section className="bordered">
         <div className="wrap">
           <PoisonChallenge />
+        </div>
+      </section>
+
+      <section className="bordered">
+        <div className="wrap">
+          <CertRegistry />
         </div>
       </section>
 
