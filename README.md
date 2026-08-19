@@ -41,6 +41,9 @@ Three properties most agent memories lack, working together:
 - [Proof, not claims](#proof-not-claims)
 - [The public red-team challenge](#the-public-red-team-challenge)
 - [Memory forensics](#memory-forensics)
+- [The war room](#the-war-room)
+- [The latency race](#the-latency-race)
+- [Promotion certificates](#promotion-certificates)
 - [The console](#the-console)
 - [Why CockroachDB](#why-cockroachdb-not-pgvector-dynamodb-or-redis)
 - [Memory model](#memory-model)
@@ -109,6 +112,47 @@ retains ~25 h of MVCC history (`gc.ttlseconds = 90000`) to serve it.
 <div align="center">
 <img src="docs/screenshots/forensics.png" alt="Memory forensics — replay a recall against the past" width="900">
 </div>
+
+## The war room
+
+Multi-agent systems fail at the memory, not the model: two agents read the
+same state, both write, and one's work silently vanishes. The
+[war-room drill](https://blackbox-web-eight.vercel.app/product) makes two
+agent workers — a responder and a postmortem scribe — collide on the same
+incident-state row **on purpose**, holding each read-modify-write open so they
+genuinely interleave. Serializable isolation turns every would-be lost update
+into a visible retry (error 40001, replayed), and the final assertion counts
+the entries: two agents × three writes = six, or the demo fails loudly.
+
+<div align="center">
+<img src="docs/screenshots/war-room.png" alt="The war room — two agents, one memory, zero lost updates" width="900">
+</div>
+
+## The latency race
+
+One query, embedded once, raced against all three regional gateways of the
+same cluster simultaneously on the
+[survivability page](https://blackbox-web-eight.vercel.app/survivability).
+Every leg is a follower read served from that region's local replicas, and
+`gateway_region()` confirms where each answer entered. The latencies differ by
+an ocean; the answers never differ at all.
+
+<div align="center">
+<img src="docs/screenshots/latency-race.png" alt="The per-region latency race" width="900">
+</div>
+
+## Promotion certificates
+
+Every lesson an operator releases into recall mints a **hash-chained
+certificate**: chain position, the runbook id, a SHA-256 of exactly the body
+that entered recall, the promotion instant, and the previous certificate's
+hash. The public registry at
+[`/api/certificates`](https://blackbox-web-eight.vercel.app/api/certificates)
+re-verifies the whole chain on every read — `chainOk` failing means promotion
+history was rewritten; `bodyUnchanged` failing means a lesson was edited after
+release. The registry renders on the
+[red-team page](https://blackbox-web-eight.vercel.app/poison): the trust
+boundary keeps receipts.
 
 ## The console
 
