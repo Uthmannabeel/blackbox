@@ -467,3 +467,27 @@ footer { border-top: 1px solid var(--border); padding: 46px 0 40px; color: var(-
 .poison-wall li { display: flex; align-items: baseline; gap: 12px; padding: 10px 0; border-bottom: 1px solid var(--border); font-size: 13.5px; }
 .poison-wall .w-text { flex: 1; color: var(--ink-2); overflow-wrap: anywhere; }
 .poison-wall .w-when { flex: none; font-size: 11.5px; }
+
+/* ---- memory forensics replay ---- */
+.fx-controls { border: 1px solid var(--border-strong); border-radius: var(--radius-lg); background: var(--surface); padding: 26px; }
+.fx-query { width: 100%; margin-top: 14px; padding: 12px 14px; font-family: var(--font-mono); font-size: 13.5px; color: var(--ink); background: transparent; border: 1px solid var(--border-strong); border-radius: 10px; }
+.fx-query:focus { outline: none; border-color: var(--accent); }
+.fx-slider-row { margin-top: 16px; display: flex; align-items: center; gap: 16px; flex-wrap: wrap; }
+.fx-slider { flex: 1; min-width: 200px; accent-color: var(--accent); }
+.fx-ago { flex: none; min-width: 92px; font-size: 13px; color: var(--ink); }
+.fx-note { margin-top: 12px; font-size: 11.5px; }
+.fx-summary { margin-top: 26px; padding: 13px 16px; border: 1px solid var(--border); border-radius: 10px; font-size: 12.5px; color: var(--ink-2); }
+.fx-summary b { color: var(--ink); }
+.fx-grid { margin-top: 18px; display: grid; grid-template-columns: 1fr 1fr; gap: 1px; background: var(--border); border: 1px solid var(--border); border-radius: var(--radius-lg); overflow: hidden; }
+.fx-col { background: var(--surface); padding: 24px; }
+.fx-col-head { display: flex; align-items: baseline; justify-content: space-between; gap: 12px; flex-wrap: wrap; }
+.fx-col-head .mono { font-size: 11.5px; }
+.fx-sec { margin-top: 22px; font-family: var(--font-mono); font-size: 11px; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); }
+.fx-col ul { list-style: none; padding: 0; margin: 10px 0 0; display: grid; gap: 12px; }
+.fx-col li { display: grid; gap: 3px; font-size: 13.5px; }
+.fx-title { color: var(--ink); overflow-wrap: anywhere; }
+.fx-meta { font-size: 11.5px; }
+.fx-new { color: var(--ok); letter-spacing: 0.04em; }
+.fx-gone { color: var(--muted); font-style: italic; }
+.fx-delta { color: var(--rec-amber); }
+@media (max-width: 860px) { .fx-grid { grid-template-columns: 1fr; } }

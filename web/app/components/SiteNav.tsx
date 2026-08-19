@@ -10,6 +10,7 @@ const LINKS = [
   { href: "/architecture", label: "Architecture" },
   { href: "/survivability", label: "Survivability" },
   { href: "/poison", label: "Red team" },
+  { href: "/forensics", label: "Forensics" },
 ];
 
 export function SiteNav() {
