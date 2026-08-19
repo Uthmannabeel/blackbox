@@ -515,3 +515,6 @@ footer { border-top: 1px solid var(--border); padding: 46px 0 40px; color: var(-
 .status-grid { margin-top: 26px; }
 .status-foot { margin-top: 24px; font-size: 12px; }
 .status-foot a { color: var(--ink-2); text-decoration: underline; }
+
+/* ---- terminal verification block ---- */
+.curl-block { background: var(--recorder); border: 1px solid var(--recorder-line); color: var(--recorder-ink); border-radius: var(--radius-lg); padding: 22px 24px; font-size: 12.5px; line-height: 1.7; overflow-x: auto; }

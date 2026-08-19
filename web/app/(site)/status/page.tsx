@@ -28,6 +28,40 @@ export default function Status() {
           <StatusBoard />
         </div>
       </section>
+
+      <section className="bordered">
+        <div className="wrap">
+          <div className="sec-head">
+            <div className="eyebrow">Trust, but verify</div>
+            <h2>Every proof, from your own terminal.</h2>
+            <p>
+              Nothing on this page requires believing the page. The same endpoints it reads are
+              public and unauthenticated — run them yourself:
+            </p>
+          </div>
+          <pre className="curl-block mono">{`# live cluster health — memories, regions, vector-search latency
+curl https://blackbox-web-eight.vercel.app/api/stats
+
+# the survival ledger — automated region drills, memories lost
+curl https://blackbox-web-eight.vercel.app/api/drills
+
+# the red-team wall — poisoning attempts and breaches (kept at zero)
+curl https://blackbox-web-eight.vercel.app/api/poison
+
+# the promotion-certificate chain, re-verified on every read
+curl https://blackbox-web-eight.vercel.app/api/certificates
+
+# race one query across all three regional gateways (follower reads)
+curl -X POST https://blackbox-web-eight.vercel.app/api/race \\
+  -H 'Content-Type: application/json' \\
+  -d '{"query":"checkout-api connection pool exhausted"}'
+
+# forensic replay — what did the agent know an hour ago?
+curl -X POST https://blackbox-web-eight.vercel.app/api/forensics \\
+  -H 'Content-Type: application/json' \\
+  -d '{"query":"checkout-api p99 latency spike","minutesAgo":60}'`}</pre>
+        </div>
+      </section>
     </>
   );
 }

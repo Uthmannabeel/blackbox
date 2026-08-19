@@ -277,6 +277,28 @@ promotes it.
 See [`ARCHITECTURE.md`](./ARCHITECTURE.md) for detail, or the live
 [architecture page](https://blackbox-web-eight.vercel.app/architecture).
 
+## Verify every claim from your terminal
+
+The proofs don't require the website — the endpoints are public:
+
+```bash
+curl https://blackbox-web-eight.vercel.app/api/stats         # cluster health, live latency
+curl https://blackbox-web-eight.vercel.app/api/drills        # survival ledger
+curl https://blackbox-web-eight.vercel.app/api/poison        # red-team wall
+curl https://blackbox-web-eight.vercel.app/api/certificates  # promotion-cert chain, re-verified per read
+
+curl -X POST https://blackbox-web-eight.vercel.app/api/race \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"checkout-api connection pool exhausted"}'    # 3-region follower-read race
+
+curl -X POST https://blackbox-web-eight.vercel.app/api/forensics \
+  -H 'Content-Type: application/json' \
+  -d '{"query":"checkout-api p99 latency spike","minutesAgo":60}'  # AS OF SYSTEM TIME replay
+```
+
+The live [status page](https://blackbox-web-eight.vercel.app/status) reads the
+same endpoints on load — nothing cached, nothing hand-entered.
+
 ## Measured numbers, with conditions
 
 Every number is stated with where it was measured — a figure without its
