@@ -40,6 +40,7 @@ Three properties most agent memories lack, working together:
 
 - [Proof, not claims](#proof-not-claims)
 - [The public red-team challenge](#the-public-red-team-challenge)
+- [Memory forensics](#memory-forensics)
 - [The console](#the-console)
 - [Why CockroachDB](#why-cockroachdb-not-pgvector-dynamodb-or-redis)
 - [Memory model](#memory-model)
@@ -92,6 +93,22 @@ writes cannot reinforce trusted runbooks), **contradiction detection** (same
 situation + materially different fix = probation, not truth), and the
 **trust boundary** (anonymous writes are quarantined — stored, auditable,
 never recalled).
+
+## Memory forensics
+
+*What did the agent know — and when did it know it?* When an agent makes a
+call mid-incident, the only fair way to judge that call is against the memory
+it had **at that moment**. [**/forensics**](https://blackbox-web-eight.vercel.app/forensics)
+re-runs the agent's own consolidated, hygiene-ranked recall inside an
+`AS OF SYSTEM TIME` transaction and diffs it against the present: memories
+written since, episodes that didn't exist yet, recurrence counts rising,
+runbooks learned and confidence earned — with timestamps. No backups, no
+separate audit store; the memory is its own forensic record. The cluster
+retains ~25 h of MVCC history (`gc.ttlseconds = 90000`) to serve it.
+
+<div align="center">
+<img src="docs/screenshots/forensics.png" alt="Memory forensics — replay a recall against the past" width="900">
+</div>
 
 ## The console
 
