@@ -1,0 +1,23 @@
+name: Devpost gallery watch
+
+# Fails (emailing the repo owner) the day the hackathon's project gallery goes
+# public — the signal to audit the competitor field. Delete this workflow once
+# that audit is done.
+on:
+  schedule:
+    - cron: "30 9 * * *"
+  workflow_dispatch:
+
+jobs:
+  watch:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check whether the project gallery is published
+        run: |
+          PAGE=$(curl -sL --max-time 30 https://cockroachdb-ai.devpost.com/project-gallery)
+          if echo "$PAGE" | grep -qi "haven't published this gallery"; then
+            echo "Gallery still unpublished — nothing to do."
+          else
+            echo "::error::The Devpost project gallery appears to be PUBLISHED — run the competitor audit, then delete this workflow."
+            exit 1
+          fi

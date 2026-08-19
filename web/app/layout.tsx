@@ -11,6 +11,11 @@ export const metadata: Metadata = {
     description:
       "Survivable, self-auditing agentic memory on CockroachDB + AWS Bedrock, demonstrated under a live region failure.",
     type: "website",
+    images: [{ url: "/og.png", width: 1200, height: 630, alt: "BlackBox — agent memory that survives the outage" }],
+  },
+  twitter: {
+    card: "summary_large_image",
+    images: ["/og.png"],
   },
 };
 

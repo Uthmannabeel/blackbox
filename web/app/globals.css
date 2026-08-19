@@ -507,3 +507,11 @@ footer { border-top: 1px solid var(--border); padding: 46px 0 40px; color: var(-
 .wr-log li { display: flex; align-items: baseline; gap: 10px; font-size: 13px; }
 .wr-t { flex: none; font-size: 11px; min-width: 58px; text-align: right; }
 @media (max-width: 700px) { .race-legs li { grid-template-columns: 90px 1fr 60px; } .race-gw { display: none; } }
+
+/* ---- status page ---- */
+.status-banner { padding: 12px 16px; border-radius: 10px; border: 1px solid; font-size: 13px; margin-bottom: 26px; }
+.status-banner.ok { color: var(--ok); border-color: var(--ok); }
+.status-banner.warn { color: var(--rec-amber); border-color: var(--rec-amber); }
+.status-grid { margin-top: 26px; }
+.status-foot { margin-top: 24px; font-size: 12px; }
+.status-foot a { color: var(--ink-2); text-decoration: underline; }
