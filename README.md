@@ -9,7 +9,7 @@
 [![Demo video](https://img.shields.io/badge/video-3%20min-red)](https://youtu.be/4KUu47gdhL0)
 [![Live demo health](https://github.com/Uthmannabeel/blackbox/actions/workflows/health.yml/badge.svg)](https://github.com/Uthmannabeel/blackbox/actions/workflows/health.yml)
 
-**[Live demo](https://blackbox-web-eight.vercel.app)** · **[Interactive console](https://blackbox-web-eight.vercel.app/console)** · **[3-minute video](https://youtu.be/4KUu47gdhL0)** · **[Red-team challenge](https://blackbox-web-eight.vercel.app/poison)**
+**[Live demo](https://blackbox-web-eight.vercel.app)** · **[Interactive console](https://blackbox-web-eight.vercel.app/console)** · **[3-minute video](https://youtu.be/4KUu47gdhL0)** · **[Extended demo — the six proofs](https://youtu.be/USx2t7VYxjo)** · **[Red-team challenge](https://blackbox-web-eight.vercel.app/poison)**
 
 <img src="docs/screenshots/home-hero.png" alt="BlackBox — agent memory that survives the outage" width="900">
 

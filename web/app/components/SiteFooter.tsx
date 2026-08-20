@@ -33,6 +33,7 @@ export function SiteFooter() {
           <div className="foot-col">
             <h4>Project</h4>
             <Link href="/status">Status</Link>
+            <a href="https://youtu.be/USx2t7VYxjo">Extended demo (video)</a>
             <a href={REPO}>GitHub</a>
             <a href={`${REPO}/blob/main/ARCHITECTURE.md`}>Architecture doc</a>
             <a href={`${REPO}/blob/main/FEEDBACK.md`}>Tool feedback</a>
