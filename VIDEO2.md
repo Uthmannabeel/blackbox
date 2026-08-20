@@ -13,7 +13,7 @@ Open **/status**. The green banner reads "all systems and all proofs green".
 
 > "This is BlackBox — agent memory that survives the outage. Since submitting,
 > we've turned every claim into a public, live proof. This page reads them all
-> straight from the production cluster: three and a half thousand memories,
+> straight from the production cluster: over three thousand memories,
 > three regions, survival goal *region*. Let me show you each proof — live."
 
 Point at the four tiles as you name them.
@@ -50,7 +50,15 @@ Scroll to the wall + certificates:
 > whole chain on every read. The trust boundary keeps receipts."
 
 ### 2:00–2:50 — Memory forensics, on /forensics
-Default query, slider to ~2 hours, Replay.
+Default query, slider to ~1 hour, Replay. (History reaches back only to this
+cluster's birth; the window deepens daily toward 23h.)
+
+Optional bonus if the diff shows a huge memoriesAdded number: the corpus was
+re-provisioned today, and the replay caught it —
+
+> "This cluster was stood up hours ago — and the forensic record knows: rewind
+> an hour and the memory held single digits. You can't fake a past with
+> AS OF SYSTEM TIME; you can only have had one."
 
 > "When an agent makes a call mid-incident, judge it against the memory it had
 > *at that moment*. This replays the agent's own recall inside AS OF SYSTEM
