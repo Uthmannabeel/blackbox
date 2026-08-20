@@ -104,7 +104,9 @@ the scroll-back).
 > "And it isn't synthetic — ask about a deleted production database and it
 > cites GitLab's actual 2017 postmortem. The link goes to the original."
 
-4. Click **"Is your memory OK? Diagnose it."**:
+4. Type into the composer and send: **"Is your memory OK? Diagnose it."**
+   (there is no chip for this — type it; the agent routes it to its
+   `diagnose_memory` tool):
 
 > "Last, the agent turns its tools on itself — and since submission this runs
 > through CockroachDB's Managed MCP Server in production. It executes the
