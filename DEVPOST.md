@@ -283,4 +283,4 @@ the properties that make an agent trustworthy.
 ## Links
 - Repo: https://github.com/Uthmannabeel/blackbox
 - Demo: https://blackbox-web-eight.vercel.app
-- Video: https://youtu.be/4KUu47gdhL0
+- Video: https://youtu.be/USx2t7VYxjo
